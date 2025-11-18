@@ -127,7 +127,17 @@ export function formatSpecificity(spec: Specificity): string {
  * - matchesContext(".button", ".button") → true (exact match)
  * - matchesContext("#main", ".button") → false (different selectors)
  */
-export function matchesContext(definitionSelector: string, usageContext: string): boolean {
+export function matchesContext(definitionSelector: string, usageContext: string, domTree?: any, domNode?: any): boolean {
+	// If we have a DOM tree and node, use proper selector matching
+	if (domTree &&  domNode) {
+		try {
+			return domTree.matchesSelector(domNode, definitionSelector);
+		} catch (e) {
+			// If selector matching fails, fall back to simple matching
+		}
+	}
+
+	// Fallback: Simple matching without DOM
 	// :root applies to everything (universal fallback)
 	if (definitionSelector.trim() === ':root') {
 		return true;

@@ -278,6 +278,10 @@ connection.onHover((params) => {
 		const usageContext = hoverUsage?.usageContext || '';
 		const isInlineStyle = usageContext === 'inline-style';
 
+		// Get DOM tree and node if available (for HTML documents)
+		const domTree = cssVariableManager.getDOMTree(document.uri);
+		const domNode = hoverUsage?.domNode;
+
 		// Sort variables by CSS cascade rules:
 		// 1. !important declarations win
 		// 2. Inline styles beat everything (except !important)
@@ -324,7 +328,9 @@ connection.onHover((params) => {
 
 			sortedVars.forEach((v, index) => {
 				const spec = calculateSpecificity(v.selector);
-				const isApplicable = usageContext ? matchesContext(v.selector, usageContext) : true;
+				// Use DOM-aware matching if available, otherwise fall back to simple matching
+				const isApplicable = usageContext ?
+					matchesContext(v.selector, usageContext, domTree, domNode) : true;
 				const isWinner = index === 0 && (isApplicable || isInlineStyle);
 
 				let line = `${index + 1}. \`${v.value}\``;
@@ -343,11 +349,13 @@ connection.onHover((params) => {
 						line += ' ✓ **Wins (!important)**';
 					} else if (isInlineStyle) {
 						line += ' ✓ **Would apply (inline style)**';
+					} else if (domTree && domNode) {
+						line += ' ✓ **Applies (DOM match)**';
 					} else {
 						line += ' ✓ **Applies here**';
 					}
 				} else if (!isApplicable && usageContext && !isInlineStyle) {
-					line += ' _(not applicable)_';
+					line += ' _(selector doesn\'t match)_';
 				} else if (index > 0 && usageContext) {
 					// Explain why it doesn't win
 					const winner = sortedVars[0];
@@ -370,6 +378,8 @@ connection.onHover((params) => {
 			if (usageContext) {
 				if (isInlineStyle) {
 					hoverText += `\n_Context: Inline style (highest priority)_`;
+				} else if (domTree && domNode) {
+					hoverText += `\n_Context: \`${usageContext}\` (DOM-aware matching)_`;
 				} else {
 					hoverText += `\n_Context: \`${usageContext}\`_`;
 				}

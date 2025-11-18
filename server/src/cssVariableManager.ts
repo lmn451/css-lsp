@@ -4,6 +4,7 @@ import { URI } from 'vscode-uri';
 import { glob } from 'glob';
 import * as fs from 'fs';
 import * as path from 'path';
+import { DOMTree, DOMNodeInfo } from './domTree';
 
 export interface CssVariable {
 	name: string;
@@ -20,11 +21,13 @@ export interface CssVariableUsage {
 	uri: string;
 	range: Range;
 	usageContext: string; // CSS selector where this variable is used
+	domNode?: DOMNodeInfo; // DOM node if usage is in HTML
 }
 
 export class CssVariableManager {
 	private variables: Map<string, CssVariable[]> = new Map();
 	private usages: Map<string, CssVariableUsage[]> = new Map();
+	private domTrees: Map<string, DOMTree> = new Map(); // URI -> DOM tree
 
 	/**
 	 * Scan all CSS and HTML files in the workspace
@@ -65,8 +68,17 @@ export class CssVariableManager {
 		// Clear existing variables and usages for this document
 		this.clearDocumentVariables(uri);
 		this.clearDocumentUsages(uri);
+		this.clearDocumentDOMTree(uri); // Clear DOM tree as well
 
 		if (document.languageId === 'html') {
+			// Build DOM tree for HTML documents
+			try {
+				const domTree = new DOMTree(text);
+				this.domTrees.set(uri, domTree);
+			} catch (error) {
+				console.error(`Error parsing HTML for ${uri}:`, error);
+			}
+
 			// Parse <style> blocks
 			const styleRegex = /<style[^>]*>([\s\S]*?)<\/style>/g;
 			let styleMatch;
@@ -82,7 +94,9 @@ export class CssVariableManager {
 			while ((inlineMatch = inlineStyleRegex.exec(text)) !== null) {
 				const styleContent = inlineMatch[1];
 				const styleStartOffset = inlineMatch.index + inlineMatch[0].indexOf(styleContent);
-				this.parseInlineStyle(styleContent, uri, document, styleStartOffset);
+				// The offset for finding the DOM node should be the start of the attribute, not its content.
+				// The inlineMatch.index is the start of "style=".
+				this.parseInlineStyle(styleContent, uri, document, styleStartOffset, inlineMatch.index);
 			}
 		} else {
 			this.parseCssText(text, uri, document, 0);
@@ -153,7 +167,7 @@ export class CssVariableManager {
 	 * Parse inline style attributes for variable usages.
 	 * Inline styles don't have selectors, they apply directly to elements (highest specificity).
 	 */
-	private parseInlineStyle(text: string, uri: string, document: TextDocument, offset: number): void {
+	private parseInlineStyle(text: string, uri: string, document: TextDocument, offset: number, attributeOffset: number): void {
 		// Parse variable usages: var(--variable-name)
 		const usageRegex = /var\((--[\w-]+)(?:\s*,\s*[^)]+)?\)/g;
 		let match;
@@ -163,11 +177,17 @@ export class CssVariableManager {
 			const startPos = document.positionAt(offset + match.index);
 			const endPos = document.positionAt(offset + match.index + match[0].length);
 
+			// Try to find the DOM node for this inline style
+			const domTree = this.domTrees.get(uri);
+			// Use the attributeOffset (start of 'style="...') to find the correct DOM node
+			const domNode = domTree?.findNodeAtPosition(attributeOffset);
+
 			const usage: CssVariableUsage = {
 				name,
 				uri,
 				range: Range.create(startPos, endPos),
-				usageContext: 'inline-style' // Special marker for inline styles
+				usageContext: 'inline-style', // Special marker for inline styles
+				domNode: domNode
 			};
 
 			if (!this.usages.has(name)) {
@@ -197,6 +217,10 @@ export class CssVariableManager {
 				this.usages.set(name, filtered);
 			}
 		}
+	}
+
+	public clearDocumentDOMTree(uri: string): void {
+		this.domTrees.delete(uri);
 	}
 
 	public getAllVariables(): CssVariable[] {
@@ -237,6 +261,13 @@ export class CssVariableManager {
 	public getDocumentDefinitions(uri: string): CssVariable[] {
 		const allVars = this.getAllVariables();
 		return allVars.filter(v => v.uri === uri);
+	}
+
+	/**
+	 * Get the DOM tree for a document (if it's HTML)
+	 */
+	public getDOMTree(uri: string): DOMTree | undefined {
+		return this.domTrees.get(uri);
 	}
 
 	/**
