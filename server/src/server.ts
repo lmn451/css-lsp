@@ -276,35 +276,62 @@ connection.onHover((params) => {
 		);
 
 		const usageContext = hoverUsage?.usageContext || '';
+		const isInlineStyle = usageContext === 'inline-style';
 
-		// Sort variables by specificity (most specific first)
+		// Sort variables by CSS cascade rules:
+		// 1. !important declarations win
+		// 2. Inline styles beat everything (except !important)
+		// 3. Then by specificity
+		// 4. Then by source order (later wins)
 		const sortedVars = [...variables].sort((a, b) => {
+			// !important always wins (unless both are !important)
+			if (a.important !== b.important) {
+				return a.important ? -1 : 1;
+			}
+
+			// After !important, check specificity
 			const specA = calculateSpecificity(a.selector);
 			const specB = calculateSpecificity(b.selector);
-			return -compareSpecificity(specA, specB); // Negative for descending order
+			const specCompare = compareSpecificity(specA, specB);
+
+			if (specCompare !== 0) {
+				return -specCompare; // Negative for descending order
+			}
+
+			// Equal specificity - later in source wins
+			return b.sourcePosition - a.sourcePosition;
 		});
 
-		// Build hover message with context-aware information
+		// Build hover message with full cascade information
 		let hoverText = `### CSS Variable: \`${word}\`\n\n`;
 
 		if (sortedVars.length === 1) {
 			// Single definition - simple display
 			const v = sortedVars[0];
-			hoverText += `**Value:** \`${v.value}\`\n\n`;
+			hoverText += `**Value:** \`${v.value}\``;
+			if (v.important) {
+				hoverText += ` **!important**`;
+			}
+			hoverText += `\n\n`;
+
 			if (v.selector) {
 				hoverText += `**Defined in:** \`${v.selector}\`\n`;
 				hoverText += `**Specificity:** ${formatSpecificity(calculateSpecificity(v.selector))}\n`;
 			}
 		} else {
-			// Multiple definitions - show which one applies
-			hoverText += '**Definitions** (sorted by specificity):\n\n';
+			// Multiple definitions - show full cascade
+			hoverText += '**Definitions** (CSS cascade order):\n\n';
 
 			sortedVars.forEach((v, index) => {
 				const spec = calculateSpecificity(v.selector);
 				const isApplicable = usageContext ? matchesContext(v.selector, usageContext) : true;
-				const isWinner = index === 0 && isApplicable;
+				const isWinner = index === 0 && (isApplicable || isInlineStyle);
 
 				let line = `${index + 1}. \`${v.value}\``;
+
+				if (v.important) {
+					line += ` **!important**`;
+				}
 
 				if (v.selector) {
 					line += ` from \`${v.selector}\``;
@@ -312,16 +339,40 @@ connection.onHover((params) => {
 				}
 
 				if (isWinner && usageContext) {
-					line += ' ✓ **Applies here**';
-				} else if (!isApplicable && usageContext) {
+					if (v.important) {
+						line += ' ✓ **Wins (!important)**';
+					} else if (isInlineStyle) {
+						line += ' ✓ **Would apply (inline style)**';
+					} else {
+						line += ' ✓ **Applies here**';
+					}
+				} else if (!isApplicable && usageContext && !isInlineStyle) {
 					line += ' _(not applicable)_';
+				} else if (index > 0 && usageContext) {
+					// Explain why it doesn't win
+					const winner = sortedVars[0];
+					if (winner.important && !v.important) {
+						line += ' _(overridden by !important)_';
+					} else {
+						const winnerSpec = calculateSpecificity(winner.selector);
+						const cmp = compareSpecificity(winnerSpec, spec);
+						if (cmp > 0) {
+							line += ' _(lower specificity)_';
+						} else if (cmp === 0) {
+							line += ' _(earlier in source)_';
+						}
+					}
 				}
 
 				hoverText += line + '\n';
 			});
 
 			if (usageContext) {
-				hoverText += `\n_Context: \`${usageContext}\`_`;
+				if (isInlineStyle) {
+					hoverText += `\n_Context: Inline style (highest priority)_`;
+				} else {
+					hoverText += `\n_Context: \`${usageContext}\`_`;
+				}
 			}
 		}
 

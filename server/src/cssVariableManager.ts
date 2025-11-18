@@ -11,6 +11,8 @@ export interface CssVariable {
 	uri: string;
 	range: Range;
 	selector: string; // CSS selector where this variable is defined (e.g., ":root", "div", ".class")
+	important: boolean; // Whether this definition uses !important
+	sourcePosition: number; // Character position in file (for source order)
 }
 
 export interface CssVariableUsage {
@@ -65,12 +67,22 @@ export class CssVariableManager {
 		this.clearDocumentUsages(uri);
 
 		if (document.languageId === 'html') {
+			// Parse <style> blocks
 			const styleRegex = /<style[^>]*>([\s\S]*?)<\/style>/g;
 			let styleMatch;
 			while ((styleMatch = styleRegex.exec(text)) !== null) {
 				const styleContent = styleMatch[1];
 				const styleStartOffset = styleMatch.index + styleMatch[0].indexOf(styleContent);
 				this.parseCssText(styleContent, uri, document, styleStartOffset);
+			}
+
+			// Parse inline style attributes
+			const inlineStyleRegex = /style\s*=\s*["']([^"']+)["']/g;
+			let inlineMatch;
+			while ((inlineMatch = inlineStyleRegex.exec(text)) !== null) {
+				const styleContent = inlineMatch[1];
+				const styleStartOffset = inlineMatch.index + inlineMatch[0].indexOf(styleContent);
+				this.parseInlineStyle(styleContent, uri, document, styleStartOffset);
 			}
 		} else {
 			this.parseCssText(text, uri, document, 0);
@@ -84,7 +96,13 @@ export class CssVariableManager {
 
 		while ((match = defRegex.exec(text)) !== null) {
 			const name = match[1];
-			const value = match[2].trim();
+			let value = match[2].trim();
+
+			// Check for !important
+			const important = value.endsWith('!important');
+			if (important) {
+				value = value.replace(/\s*!important\s*$/, '').trim();
+			}
 
 			// Extract the selector for this variable definition
 			const selector = this.extractSelectorAtPosition(text, match.index);
@@ -96,7 +114,9 @@ export class CssVariableManager {
 				value,
 				uri,
 				range: Range.create(startPos, endPos),
-				selector: selector
+				selector: selector,
+				important: important,
+				sourcePosition: offset + match.index
 			};
 
 			if (!this.variables.has(name)) {
@@ -120,6 +140,34 @@ export class CssVariableManager {
 				uri,
 				range: Range.create(startPos, endPos),
 				usageContext: usageContext
+			};
+
+			if (!this.usages.has(name)) {
+				this.usages.set(name, []);
+			}
+			this.usages.get(name)?.push(usage);
+		}
+	}
+
+	/**
+	 * Parse inline style attributes for variable usages.
+	 * Inline styles don't have selectors, they apply directly to elements (highest specificity).
+	 */
+	private parseInlineStyle(text: string, uri: string, document: TextDocument, offset: number): void {
+		// Parse variable usages: var(--variable-name)
+		const usageRegex = /var\((--[\w-]+)(?:\s*,\s*[^)]+)?\)/g;
+		let match;
+
+		while ((match = usageRegex.exec(text)) !== null) {
+			const name = match[1];
+			const startPos = document.positionAt(offset + match.index);
+			const endPos = document.positionAt(offset + match.index + match[0].length);
+
+			const usage: CssVariableUsage = {
+				name,
+				uri,
+				range: Range.create(startPos, endPos),
+				usageContext: 'inline-style' // Special marker for inline styles
 			};
 
 			if (!this.usages.has(name)) {

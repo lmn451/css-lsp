@@ -6,7 +6,7 @@
 		"compile": "tsc -b",
 		"watch": "tsc -b -w",
 		"postinstall": "cd client && npm install && cd ../server && npm install",
-		"test": "sh ./scripts/e2e.sh"
+		"test": "cd server && npm run test:all"
 	},
 	"devDependencies": {
 		"typescript": "^5.3.3",

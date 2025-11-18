@@ -2,109 +2,120 @@
 
 This document outlines the current limitations of the CSS Variable Language Server.
 
-## Selector Parsing Limitations
+## ✅ What We DO Handle
 
-### Not Tracked
-- **Selector context**: Variable definitions don't track which CSS selector they belong to
-  - Example: Can't distinguish between `:root { --color: red; }` and `div { --color: blue; }`
+- **Selector tracking**: Each variable definition tracks its CSS selector (`:root`, `div`, `.class`, etc.)
+- **CSS Specificity**: Full specificity calculation for IDs, classes, pseudo-classes, elements
+- **Usage context detection**: Tracks which selector a `var(--name)` usage appears in
+- **Context-aware hover**: Shows all definitions sorted by specificity with indicator of which applies
 
-### Not Calculated
-- **CSS Specificity**: No specificity calculation for selectors
-  - Can't determine that `#id` beats `.class` beats `div`
-  - Can't resolve which value would actually apply in a given context
+## ❌ What We DON'T Handle
 
-### Not Supported
+### CSS Nesting & Hierarchy
+
+**This is the key limitation you're asking about!**
+
+- **No DOM structure awareness**: We don't know the actual HTML element hierarchy
+  - Example: Can't tell if a `div` is inside another `div` or a `section`
+  - Can't resolve parent-child relationships
+
+- **No CSS nesting support** (CSS Nesting Module):
+  ```css
+  .parent {
+    --color: red;
+    .child {
+      --color: blue;  /* We parse this but don't know it's nested */
+    }
+  }
+  ```
+
+- **No descendant/combinator resolution**:
+  ```css
+  div .class { --color: blue; }      /* We see "div .class" but can't match it to usage context */
+  div > .class { --color: green; }   /* Same issue */
+  .parent .child { --color: red; }   /* We don't know .child is inside .parent */
+  ```
+
+### What This Means
+
+Our current implementation:
+1. ✅ Extracts the selector (e.g., `div`, `.class`)
+2. ✅ Calculates specificity (e.g., `.class` > `div`)
+3. ✅ Shows which would apply based on **exact selector match**
+4. ❌ **Does NOT** understand:
+   - Selector hierarchies (parent-child relationships)
+   - Whether a usage is inside a nested context
+   - Complex combinators (`>`, `+`, `~`, space)
+
+### Example of Current Limitation
+
+```css
+div { --color: red; }
+div .inner { --color: blue; }
+
+.inner { color: var(--color); }  /* Which color applies? */
+```
+
+**What we show**: Both `red` and `blue` with specificity scores
+**What we CAN'T determine**: Whether `.inner` is actually inside a `div` in the HTML
+
+### Other Limitations
+
 - **Complex selectors**:
-  - Descendant combinators: `div .class`
-  - Child combinators: `div > .class`
-  - Sibling combinators: `div + .class`, `div ~ .class`
-  - Attribute selectors: `[data-attr="value"]`
-  - Pseudo-classes: `:hover`, `:nth-child()`, etc.
-  - Pseudo-elements: `::before`, `::after`
+  - Attribute selectors: `[data-attr="value"]` ✅ Parsed, ❌ Not matched
+  - Pseudo-classes: `:hover`, `:nth-child()` ✅ Parsed, ❌ Context not resolved
+  - Pseudo-elements: `::before`, `::after` ✅ Counted in specificity
 
-- **Media queries**: Variables defined inside `@media` are tracked but context is ignored
+- **Media queries**: Variables in `@media` are tracked but context ignored
 - **Container queries**: Variables in `@container` are not context-aware
 - **Cascade layers**: `@layer` is not considered
 
-## CSS Cascade Limitations
+- **Source order**: When two selectors have equal specificity, we don't track source order
 
-### Not Resolved
-- **Source order**: When two selectors have equal specificity, source order determines winner
-  - Current behavior: Shows all definitions without indication of which wins
+- **!important**: Not tracked or considered
 
-- **!important**: No tracking of `!important` declarations
+- **Inheritance**: Can't determine if a value is inherited from a parent
 
-- **Inheritance**: No parent-child relationship tracking
-  - Can't determine inherited values from parent elements
+### HTML/DOM Limitations
 
-## Context-Aware Features
-
-### Currently Missing
-- **Usage context detection**: When hovering over `var(--name)`, can't determine:
-  - Which selector the usage is within
-  - Which definition would actually apply
-  - What the computed value would be
-
-- **Value resolution**: No fallback value resolution for `var(--name, fallback)`
-
-- **Circular reference detection**: No warning for circular variable references
-  - Example: `--a: var(--b); --b: var(--a);`
-
-## HTML/DOM Limitations
-
-### Not Available
-- **DOM structure**: No knowledge of HTML element hierarchy
-  - Can't determine parent-child relationships
-  - Can't resolve inherited values
-
-- **Inline styles**: While we parse `<style>` blocks in HTML, we don't parse `style=""` attributes
-
+- **Inline styles**: `style=""` attributes are not parsed for variable usages
 - **Computed styles**: No runtime evaluation
-  - Can't compute actual color values from functions like `rgb()`, `hsl()`
-  - Can't resolve `calc()` expressions
+  - Can't compute `rgb()`, `hsl()`, `calc()` expressions
+  - Can't resolve actual computed values
 
-## Scope Limitations
+### Scope Limitations
 
-### Current Behavior
-- **Multiple definitions**: When a variable is defined multiple times:
-  - All definitions are tracked
-  - No indication of which is more specific
-  - Hover may show arbitrary first match
-  - "Find References" shows all definitions correctly
+- **Shadow DOM**: No support for `:host` or `::slotted()` in Web Components
 
-### Shadow DOM
-- No support for `:host` or `::slotted()` selectors in Web Components
+### File Parsing Limitations
 
-## File Parsing Limitations
-
-### Edge Cases
 - **Malformed CSS**: Parser may fail on invalid syntax
 - **Comments in selectors**: May incorrectly parse comments as part of selectors
-- **Nested rules** (CSS Nesting Module): Not yet supported
-  - Example: `.parent { .child { --var: value; } }`
 
-## Performance Limitations
+### Performance Limitations
 
-### Current Constraints
-- **Large workspaces**: Scanning thousands of CSS files may be slow on initialization
-- **No incremental parsing**: File changes trigger full re-parse of the file
-- **No caching**: Workspace scan results are not persisted between VS Code sessions
+- **Large workspaces**: Scanning thousands of CSS files may be slow
+- **No incremental parsing**: File changes trigger full re-parse
+- **No caching**: Workspace scan results not persisted between sessions
 
-## Known Issues
+### Known Issues
 
-### Rename Operation
-- Renames all occurrences including in comments/strings (no AST-awareness)
-- May incorrectly rename partial matches
-
-### Diagnostics
-- Only checks if variable is defined anywhere in workspace
-- Doesn't check if variable would be accessible in usage context
+- **Rename Operation**: Renames in comments/strings (no full AST-awareness)
+- **Diagnostics**: Only checks if variable exists anywhere, not if it's accessible in context
 
 ---
 
-## Planned Improvements
+## Summary
 
-See [implementation_plan.md](file:///Users/applesucks/.gemini/antigravity/brain/f71f840a-0c2a-4454-b5ee-d86de6d50f47/implementation_plan.md) for upcoming features including:
-- Selector context tracking
-- Basic CSS specificity calculation
-- Context-aware hover information
+**You asked: "Should we also care about nesting?"**
+
+**Answer**: YES! Nesting/hierarchy is currently our biggest limitation. We handle:
+- ✅ Basic selector matching and specificity
+- ❌ NOT actual DOM structure or nested selectors
+
+To fully resolve which value applies, we'd need:
+1. HTML DOM structure analysis
+2. Selector combinator matching
+3. CSS cascade simulation
+
+This is significantly more complex. Current implementation is a good middle ground - shows possibilities with specificity hints, but doesn't claim full cascade resolution.

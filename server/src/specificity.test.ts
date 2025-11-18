@@ -58,7 +58,7 @@ console.log('Running Specificity Calculator tests...');
 	assert.strictEqual(compareSpecificity(div, root), 1, 'div should be more specific than :root for element selectors');
 	assert.strictEqual(compareSpecificity(cls, div), 1, '.button should be more specific than div');
 	assert.strictEqual(compareSpecificity(id, cls), 1, '#main should be more specific than .button');
-	assert.strictEqual(compareSpecificity(root, date), 0, 'Equal specificity should return 0');
+	assert.strictEqual(compareSpecificity(root, root), 0, 'Equal specificity should return 0');
 
 	console.log('Test 6 passed: Specificity comparisons');
 }

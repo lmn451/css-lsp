@@ -70,16 +70,16 @@ console.log('Running CssVariableManager tests...');
     assert.ok(usage, 'Should have usage');
     console.log('Test 5 passed: Rename Support');
 }
-// Test 6: CSS Variable Scoping/Override
+// Test 6: CSS Variable Scoping/Override with Selector Tracking
 {
     const htmlContent = `
 <html>
 <style>
   :root { --primary-color: red; }
-  div { --primary-color: blue; }
+  div { --primary-color: blue; color: var(--primary-color); }
 </style>
 <body>
-  <div style="color: var(--primary-color);">Test</div>
+  <div>Test</div>
 </body>
 </html>`;
     const doc = createDoc('file:///test.html', htmlContent, 'html');
@@ -87,17 +87,26 @@ console.log('Running CssVariableManager tests...');
     // The LSP should find both definitions
     const definitions = manager.getVariables('--primary-color');
     assert.strictEqual(definitions.length, 2, 'Should find 2 definitions (root and div)');
-    // Check the values
+    // Check the values and selectors
     const rootDef = definitions.find(d => d.value === 'red');
     const divDef = definitions.find(d => d.value === 'blue');
     assert.ok(rootDef, 'Should have definition with red');
     assert.ok(divDef, 'Should have definition with blue');
-    // The LSP tracks both definitions but doesn't resolve which one applies in context
-    // In a real browser, the div styling would use blue (more specific)
-    // But the LSP currently shows all definitions, not context-specific resolution
-    console.log('Test 6 passed: CSS Variable Scoping');
-    console.log('  Note: LSP tracks both values (red and blue)');
-    console.log('  Context-aware resolution would require CSS specificity analysis');
+    // Verify selectors are tracked
+    assert.strictEqual(rootDef?.selector, ':root', 'Root definition should have :root selector');
+    assert.strictEqual(divDef?.selector, 'div', 'Div definition should have div selector');
+    // Verify usage context is tracked
+    const usages = manager.getVariableUsages('--primary-color');
+    assert.strictEqual(usages.length, 1, 'Should find 1 usage');
+    assert.strictEqual(usages[0].usageContext, 'div', 'Usage should be in div context');
+    // Verify that the resolved color for the text "Test" (inside div) is blue
+    // We match the usage context ('div') with the definition selector ('div')
+    const activeDefinition = definitions.find(d => d.selector === usages[0].usageContext);
+    assert.strictEqual(activeDefinition?.value, 'blue', 'Resolved color for text should be blue');
+    console.log('Test 6 passed: CSS Variable Scoping with Selectors');
+    console.log(`  Root definition: ${rootDef?.selector} = ${rootDef?.value}`);
+    console.log(`  Div definition: ${divDef?.selector} = ${divDef?.value}`);
+    console.log(`  Usage context: ${usages[0].usageContext}`);
 }
 console.log('All tests passed!');
 //# sourceMappingURL=test.js.map
