@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const node_1 = require("vscode-languageserver/node");
 const vscode_languageserver_textdocument_1 = require("vscode-languageserver-textdocument");
 const cssVariableManager_1 = require("./cssVariableManager");
+const specificity_1 = require("./specificity");
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
 const connection = (0, node_1.createConnection)(node_1.ProposedFeatures.all);
@@ -190,16 +191,61 @@ connection.onHover((params) => {
     const word = left[0] + right[0];
     if (word.startsWith('--')) {
         const variables = cssVariableManager.getVariables(word);
-        if (variables.length > 0) {
-            // Show the value of the first match (or all of them)
-            const value = variables[0].value;
-            return {
-                contents: {
-                    kind: 'markdown',
-                    value: `**${word}**: ${value}`
-                }
-            };
+        if (variables.length === 0) {
+            return undefined;
         }
+        // Get all usages to find context if hovering over a usage
+        const usages = cssVariableManager.getVariableUsages(word);
+        const hoverUsage = usages.find(u => document.positionAt(document.offsetAt(u.range.start)) === params.position ||
+            (offset >= document.offsetAt(u.range.start) && offset <= document.offsetAt(u.range.end)));
+        const usageContext = hoverUsage?.usageContext || '';
+        // Sort variables by specificity (most specific first)
+        const sortedVars = [...variables].sort((a, b) => {
+            const specA = (0, specificity_1.calculateSpecificity)(a.selector);
+            const specB = (0, specificity_1.calculateSpecificity)(b.selector);
+            return -(0, specificity_1.compareSpecificity)(specA, specB); // Negative for descending order
+        });
+        // Build hover message with context-aware information
+        let hoverText = `### CSS Variable: \`${word}\`\n\n`;
+        if (sortedVars.length === 1) {
+            // Single definition - simple display
+            const v = sortedVars[0];
+            hoverText += `**Value:** \`${v.value}\`\n\n`;
+            if (v.selector) {
+                hoverText += `**Defined in:** \`${v.selector}\`\n`;
+                hoverText += `**Specificity:** ${(0, specificity_1.formatSpecificity)((0, specificity_1.calculateSpecificity)(v.selector))}\n`;
+            }
+        }
+        else {
+            // Multiple definitions - show which one applies
+            hoverText += '**Definitions** (sorted by specificity):\n\n';
+            sortedVars.forEach((v, index) => {
+                const spec = (0, specificity_1.calculateSpecificity)(v.selector);
+                const isApplicable = usageContext ? (0, specificity_1.matchesContext)(v.selector, usageContext) : true;
+                const isWinner = index === 0 && isApplicable;
+                let line = `${index + 1}. \`${v.value}\``;
+                if (v.selector) {
+                    line += ` from \`${v.selector}\``;
+                    line += ` ${(0, specificity_1.formatSpecificity)(spec)}`;
+                }
+                if (isWinner && usageContext) {
+                    line += ' ✓ **Applies here**';
+                }
+                else if (!isApplicable && usageContext) {
+                    line += ' _(not applicable)_';
+                }
+                hoverText += line + '\n';
+            });
+            if (usageContext) {
+                hoverText += `\n_Context: \`${usageContext}\`_`;
+            }
+        }
+        return {
+            contents: {
+                kind: 'markdown',
+                value: hoverText
+            }
+        };
     }
     return undefined;
 });

@@ -10,12 +10,14 @@ export interface CssVariable {
 	value: string;
 	uri: string;
 	range: Range;
+	selector: string; // CSS selector where this variable is defined (e.g., ":root", "div", ".class")
 }
 
 export interface CssVariableUsage {
 	name: string;
 	uri: string;
 	range: Range;
+	usageContext: string; // CSS selector where this variable is used
 }
 
 export class CssVariableManager {
@@ -76,13 +78,16 @@ export class CssVariableManager {
 	}
 
 	private parseCssText(text: string, uri: string, document: TextDocument, offset: number): void {
-		// Parse variable definitions
+		// Parse variable definitions with their selectors
 		const defRegex = /(--[\w-]+)\s*:\s*([^;]+);/g;
 		let match;
 
 		while ((match = defRegex.exec(text)) !== null) {
 			const name = match[1];
 			const value = match[2].trim();
+
+			// Extract the selector for this variable definition
+			const selector = this.extractSelectorAtPosition(text, match.index);
 			const startPos = document.positionAt(offset + match.index);
 			const endPos = document.positionAt(offset + match.index + match[0].length);
 
@@ -90,7 +95,8 @@ export class CssVariableManager {
 				name,
 				value,
 				uri,
-				range: Range.create(startPos, endPos)
+				range: Range.create(startPos, endPos),
+				selector: selector
 			};
 
 			if (!this.variables.has(name)) {
@@ -106,10 +112,14 @@ export class CssVariableManager {
 			const startPos = document.positionAt(offset + match.index);
 			const endPos = document.positionAt(offset + match.index + match[0].length);
 
+			// Extract the selector context for this usage
+			const usageContext = this.extractSelectorAtPosition(text, match.index);
+
 			const usage: CssVariableUsage = {
 				name,
 				uri,
-				range: Range.create(startPos, endPos)
+				range: Range.create(startPos, endPos),
+				usageContext: usageContext
 			};
 
 			if (!this.usages.has(name)) {
@@ -179,5 +189,52 @@ export class CssVariableManager {
 	public getDocumentDefinitions(uri: string): CssVariable[] {
 		const allVars = this.getAllVariables();
 		return allVars.filter(v => v.uri === uri);
+	}
+
+	/**
+	 * Extract the CSS selector at a given position in the text.
+	 * This finds the selector of the CSS rule containing the position.
+	 *
+	 * Example: For ":root { --color: red; }", returns ":root"
+	 */
+	private extractSelectorAtPosition(text: string, position: number): string {
+		// Find the opening brace before this position
+		let bracePos = text.lastIndexOf('{', position);
+		if (bracePos === -1) {
+			return ''; // No selector found
+		}
+
+		// Find the start of the selector (after previous closing brace or start of text)
+		let prevCloseBrace = text.lastIndexOf('}', bracePos);
+		let selectorStart = prevCloseBrace === -1 ? 0 : prevCloseBrace + 1;
+
+		// Extract and clean the selector
+		let selector = text.substring(selectorStart, bracePos).trim();
+
+		// Remove CSS at-rules (@media, @keyframes, etc.) - keep searching backwards
+		if (selector.startsWith('@')) {
+			// Try to find the actual selector inside the at-rule
+			const nestedBrace = text.lastIndexOf('{', bracePos - 1);
+			if (nestedBrace > selectorStart) {
+				const nestedPrevBrace = text.lastIndexOf('}', nestedBrace);
+				const nestedStart = nestedPrevBrace === -1 ? prevCloseBrace + 1 : nestedPrevBrace + 1;
+				selector = text.substring(nestedStart, nestedBrace).trim();
+
+				// If still an at-rule, default to empty
+				if (selector.startsWith('@')) {
+					selector = '';
+				}
+			}
+		}
+
+		// Clean up comments
+		selector = selector.replace(/\/\*.*?\*\//g, '').trim();
+
+		// For multiple selectors (comma-separated), take the first one
+		if (selector.includes(',')) {
+			selector = selector.split(',')[0].trim();
+		}
+
+		return selector || '';
 	}
 }
