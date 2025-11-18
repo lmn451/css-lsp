@@ -10,7 +10,13 @@ import {
 	CompletionItemKind,
 	TextDocumentPositionParams,
 	TextDocumentSyncKind,
-	InitializeResult
+	InitializeResult,
+	Location,
+	SymbolKind,
+	DocumentSymbol,
+	WorkspaceSymbol,
+	WorkspaceEdit,
+	TextEdit
 } from 'vscode-languageserver/node';
 
 import {
@@ -58,7 +64,11 @@ connection.onInitialize((params: InitializeParams) => {
 				triggerCharacters: ['-']
 			},
 			definitionProvider: true,
-			hoverProvider: true
+			hoverProvider: true,
+			referencesProvider: true,
+			renameProvider: true,
+			documentSymbolProvider: true,
+			workspaceSymbolProvider: true
 		}
 	};
 	if (hasWorkspaceFolderCapability) {
@@ -71,7 +81,7 @@ connection.onInitialize((params: InitializeParams) => {
 	return result;
 });
 
-connection.onInitialized(() => {
+connection.onInitialized(async () => {
 	if (hasConfigurationCapability) {
 		// Register for all configuration changes.
 		connection.client.register(DidChangeConfigurationNotification.type, undefined);
@@ -80,6 +90,18 @@ connection.onInitialized(() => {
 		connection.workspace.onDidChangeWorkspaceFolders(_event => {
 			connection.console.log('Workspace folder change event received.');
 		});
+	}
+
+	// Scan workspace for CSS variables on initialization
+	const workspaceFolders = await connection.workspace.getWorkspaceFolders();
+	if (workspaceFolders) {
+		connection.console.log('Scanning workspace for CSS variables...');
+		const folderUris = workspaceFolders.map(f => f.uri);
+		await cssVariableManager.scanWorkspace(folderUris);
+		connection.console.log(`Workspace scan complete. Found ${cssVariableManager.getAllVariables().length} variables.`);
+
+		// Validate all open documents after workspace scan
+		documents.all().forEach(validateTextDocument);
 	}
 });
 
@@ -137,14 +159,58 @@ documents.onDidChangeContent(change => {
 });
 
 async function validateTextDocument(textDocument: TextDocument): Promise<void> {
-	// In this simple example we get the settings for every validate run.
 	const settings = await getDocumentSettings(textDocument.uri);
-	// Validation logic could go here (e.g. finding undefined variables)
+	const text = textDocument.getText();
+	const diagnostics: Diagnostic[] = [];
+
+	// Find all var(--variable) usages
+	const usageRegex = /var\((--[\w-]+)(?:\s*,\s*[^)]+)?\)/g;
+	let match;
+
+	while ((match = usageRegex.exec(text)) !== null) {
+		const variableName = match[1];
+		const definitions = cssVariableManager.getVariables(variableName);
+
+		if (definitions.length === 0) {
+			// Variable is used but not defined
+			const startPos = textDocument.positionAt(match.index);
+			const endPos = textDocument.positionAt(match.index + match[0].length);
+
+			const diagnostic: Diagnostic = {
+				severity: DiagnosticSeverity.Warning,
+				range: {
+					start: startPos,
+					end: endPos
+				},
+				message: `CSS variable '${variableName}' is not defined in the workspace`,
+				source: 'css-variable-lsp'
+			};
+
+			if (hasDiagnosticRelatedInformationCapability) {
+				diagnostic.relatedInformation = [];
+			}
+
+			diagnostics.push(diagnostic);
+		}
+	}
+
+	// Send diagnostics to the client
+	connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
 }
 
-connection.onDidChangeWatchedFiles(_change => {
-	// Monitored files have change in VSCode
-	connection.console.log('We received an file change event');
+connection.onDidChangeWatchedFiles(async (change) => {
+	// Monitored files have changed in VSCode
+	connection.console.log('Received file change event');
+
+	// Re-scan workspace to pick up any new/changed/deleted files
+	const workspaceFolders = await connection.workspace.getWorkspaceFolders();
+	if (workspaceFolders) {
+		const folderUris = workspaceFolders.map(f => f.uri);
+		await cssVariableManager.scanWorkspace(folderUris);
+
+		// Revalidate all open documents
+		documents.all().forEach(validateTextDocument);
+	}
 });
 
 // This handler provides the initial list of the completion items.
@@ -238,6 +304,117 @@ connection.onDefinition((params) => {
 		}
 	}
 	return undefined;
+});
+
+// Make the text document manager listen on the connection
+// for open, change and close text document events
+documents.listen(connection);
+
+// Find all references handler
+connection.onReferences((params) => {
+	const document = documents.get(params.textDocument.uri);
+	if (!document) {
+		return [];
+	}
+
+	const text = document.getText();
+	const offset = document.offsetAt(params.position);
+
+	const left = text.slice(0, offset).match(/[\w-]*$/);
+	const right = text.slice(offset).match(/^[\w-]*/);
+
+	if (!left || !right) {
+		return [];
+	}
+
+	const word = left[0] + right[0];
+
+	if (word.startsWith('--')) {
+		const references = cssVariableManager.getReferences(word);
+		return references.map(ref => Location.create(ref.uri, ref.range));
+	}
+
+	return [];
+});
+
+// Rename handler
+connection.onRenameRequest((params) => {
+	const document = documents.get(params.textDocument.uri);
+	if (!document) {
+		return null;
+	}
+
+	const text = document.getText();
+	const offset = document.offsetAt(params.position);
+
+	const left = text.slice(0, offset).match(/[\w-]*$/);
+	const right = text.slice(offset).match(/^[\w-]*/);
+
+	if (!left || !right) {
+		return null;
+	}
+
+	const word = left[0] + right[0];
+
+	if (word.startsWith('--')) {
+		const references = cssVariableManager.getReferences(word);
+		const changes: { [uri: string]: TextEdit[] } = {};
+
+		for (const ref of references) {
+			if (!changes[ref.uri]) {
+				changes[ref.uri] = [];
+			}
+
+			// For definitions, just replace the variable name
+			// For usages in var(), replace just the variable name part
+			const edit: TextEdit = {
+				range: ref.range,
+				newText: 'uri' in ref && 'value' in ref
+					? `${params.newName}: ${(ref as any).value};`  // Definition
+					: `var(${params.newName})`  // Usage
+			};
+
+			changes[ref.uri].push(edit);
+		}
+
+		return { changes };
+	}
+
+	return null;
+});
+
+// Document symbols handler
+connection.onDocumentSymbol((params) => {
+	const document = documents.get(params.textDocument.uri);
+	if (!document) {
+		return [];
+	}
+
+	const variables = cssVariableManager.getDocumentDefinitions(document.uri);
+	return variables.map(v => DocumentSymbol.create(
+		v.name,
+		v.value,
+		SymbolKind.Variable,
+		v.range,
+		v.range
+	));
+});
+
+// Workspace symbols handler
+connection.onWorkspaceSymbol((params) => {
+	const query = params.query.toLowerCase();
+	const allVariables = cssVariableManager.getAllDefinitions();
+
+	const filtered = query
+		? allVariables.filter(v => v.name.toLowerCase().includes(query))
+		: allVariables;
+
+	return filtered.map(v => WorkspaceSymbol.create(
+		v.name,
+		SymbolKind.Variable,
+		v.uri,
+		v.range
+	));
 });
 
 // Make the text document manager listen on the connection

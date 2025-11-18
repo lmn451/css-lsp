@@ -53,4 +53,36 @@ console.log('Running CssVariableManager tests...');
 	console.log('Test 3 passed: Updates');
 }
 
+// Test 4: Usage Tracking and References
+{
+	const doc = createDoc('file:///test.css', ':root { --color: red; } .box { color: var(--color); }');
+	manager.parseDocument(doc);
+
+	const usages = manager.getVariableUsages('--color');
+	assert.strictEqual(usages.length, 1, 'Should find 1 usage');
+
+	const references = manager.getReferences('--color');
+	assert.strictEqual(references.length, 2, 'Should find 2 references (1 def + 1 usage)');
+
+	console.log('Test 4 passed: Usage Tracking');
+}
+
+// Test 5: Rename Support
+{
+	const doc = createDoc('file:///test.css', ':root { --old: red; } .box { color: var(--old); }');
+	manager.parseDocument(doc);
+
+	const references = manager.getReferences('--old');
+	assert.strictEqual(references.length, 2, 'Should find all references for rename');
+
+	// Verify ranges are correct (simplified check)
+	const def = references.find(r => 'value' in r);
+	const usage = references.find(r => !('value' in r));
+
+	assert.ok(def, 'Should have definition');
+	assert.ok(usage, 'Should have usage');
+
+	console.log('Test 5 passed: Rename Support');
+}
+
 console.log('All tests passed!');

@@ -23,8 +23,8 @@ function activate(context) {
         // Register the server for plain text documents
         documentSelector: [{ scheme: 'file', language: 'css' }, { scheme: 'file', language: 'html' }],
         synchronize: {
-            // Notify the server about file changes to '.clientrc files contained in the workspace
-            fileEvents: vscode_1.workspace.createFileSystemWatcher('**/.clientrc')
+            // Notify the server about file changes to CSS and HTML files
+            fileEvents: vscode_1.workspace.createFileSystemWatcher('**/*.{css,html}')
         }
     };
     // Create the language client and start the client.
