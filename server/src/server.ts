@@ -162,14 +162,20 @@ function getDocumentSettings(resource: string): Thenable<ExampleSettings> {
 // Only keep settings for open documents
 documents.onDidClose(e => {
 	documentSettings.delete(e.document.uri);
-	cssVariableManager.clearDocumentVariables(e.document.uri);
+	cssVariableManager.removeFile(e.document.uri);
+});
+
+// The content of a text document has been opened.
+documents.onDidOpen(e => {
+	cssVariableManager.parseDocument(e.document);
+	validateTextDocument(e.document);
 });
 
 // The content of a text document has changed. This event is emitted
 // when the text document first opened or when its content has changed.
 documents.onDidChangeContent(change => {
 	cssVariableManager.parseDocument(change.document);
-	// We could validate here if we wanted to check for undefined variables
+	validateTextDocument(change.document);
 });
 
 async function validateTextDocument(textDocument: TextDocument): Promise<void> {

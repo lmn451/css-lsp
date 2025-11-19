@@ -3,9 +3,9 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { URI } from 'vscode-uri';
 import { glob } from 'glob';
 import * as fs from 'fs';
-import * as path from 'path';
 import * as csstree from 'css-tree';
 import { DOMTree, DOMNodeInfo } from './domTree';
+import { parse, HTMLElement as ParsedHTMLElement } from 'node-html-parser';
 
 export interface CssVariable {
 	name: string;
@@ -50,7 +50,7 @@ export class CssVariableManager {
 				try {
 					const content = fs.readFileSync(filePath, 'utf-8');
 					const fileUri = URI.file(filePath).toString();
-					
+
 					let languageId = 'css';
 					if (filePath.endsWith('.html')) {
 						languageId = 'html';
@@ -79,7 +79,6 @@ export class CssVariableManager {
 		this.removeFile(uri);
 
 		if (languageId === 'html') {
-			// ... rest of the logic
 			// Build DOM tree for HTML documents
 			try {
 				const domTree = new DOMTree(text);
@@ -88,27 +87,57 @@ export class CssVariableManager {
 				console.error(`Error parsing HTML for ${uri}:`, error);
 			}
 
-			// Parse <style> blocks
-			const styleRegex = /<style[^>]*>([\s\S]*?)<\/style>/g;
-			let styleMatch;
-			while ((styleMatch = styleRegex.exec(text)) !== null) {
-				const styleContent = styleMatch[1];
-				const styleStartOffset = styleMatch.index + styleMatch[0].indexOf(styleContent);
-				// Create a dummy document for position matching if needed, or we need to refactor parseCssText to take direct text/uri
-				// parseCssText uses 'document.positionAt' which requires a TextDocument object.
-				// We should create a temporary TextDocument here.
-				const document = TextDocument.create(uri, languageId, 1, text);
-				this.parseCssText(styleContent, uri, document, styleStartOffset);
-			}
+			// Use node-html-parser to extract style blocks and inline styles
+			try {
+				const root = parse(text, {
+					lowerCaseTagName: true,
+					comment: false, // Automatically ignores comments
+					blockTextElements: {
+						script: true,
+						noscript: true,
+						style: true, // Keep style as block text so we can extract content
+					}
+				});
 
-			// Parse inline style attributes
-			const inlineStyleRegex = /style\s*=\s*["']([^"']+)["']/g;
-			let inlineMatch;
-			while ((inlineMatch = inlineStyleRegex.exec(text)) !== null) {
-				const styleContent = inlineMatch[1];
-				const styleStartOffset = inlineMatch.index + inlineMatch[0].indexOf(styleContent);
 				const document = TextDocument.create(uri, languageId, 1, text);
-				this.parseInlineStyle(styleContent, uri, document, styleStartOffset, inlineMatch.index);
+
+				// Parse <style> blocks
+				const styleElements = root.querySelectorAll('style');
+				for (const styleEl of styleElements) {
+					const styleContent = styleEl.textContent;
+					if (styleContent && styleEl.range) {
+						// Calculate the offset where the CSS content starts
+						// styleEl.range gives us the full element from '<style>' to '</style>'
+						// We need to find where the content starts (after the opening tag)
+						const elementText = text.substring(styleEl.range[0], styleEl.range[1]);
+						const openingTagEnd = elementText.indexOf('>') + 1;
+						const styleStartOffset = styleEl.range[0] + openingTagEnd;
+
+						this.parseCssText(styleContent, uri, document, styleStartOffset);
+					}
+				}
+
+				// Parse inline style attributes
+				const elementsWithStyle = root.querySelectorAll('[style]');
+				for (const el of elementsWithStyle) {
+					const styleAttr = el.getAttribute('style');
+					if (styleAttr && el.range) {
+						// Find the position of the style attribute value in the original text
+						const elementText = text.substring(el.range[0], el.range[1]);
+						const styleAttrStart = elementText.indexOf('style');
+						if (styleAttrStart !== -1) {
+							// Find where the attribute value starts (after the opening quote)
+							const valueStart = elementText.indexOf(styleAttr, styleAttrStart);
+							if (valueStart !== -1) {
+								const styleStartOffset = el.range[0] + valueStart;
+								const attributeOffset = el.range[0] + styleAttrStart;
+								this.parseInlineStyle(styleAttr, uri, document, styleStartOffset, attributeOffset);
+							}
+						}
+					}
+				}
+			} catch (error) {
+				console.error(`Error parsing HTML content for ${uri}:`, error);
 			}
 		} else {
 			// CSS, SCSS, SASS, LESS
@@ -175,7 +204,7 @@ export class CssVariableManager {
 							if (firstChild.type === 'Identifier' && firstChild.name.startsWith('--')) {
 								const name = firstChild.name;
 								const usageContext = selectorStack.length > 0 ? selectorStack[selectorStack.length - 1] : '';
-								
+
 								if (node.loc) {
 									const startPos = document.positionAt(offset + node.loc.start.offset);
 									const endPos = document.positionAt(offset + node.loc.end.offset);
@@ -227,11 +256,11 @@ export class CssVariableManager {
 							const firstChild = children.head.data;
 							if (firstChild.type === 'Identifier' && firstChild.name.startsWith('--')) {
 								const name = firstChild.name;
-								
+
 								if (node.loc) {
 									const startPos = document.positionAt(offset + node.loc.start.offset);
 									const endPos = document.positionAt(offset + node.loc.end.offset);
-									
+
 									// Try to find the DOM node for this inline style
 									const domTree = this.domTrees.get(uri);
 									// Use the attributeOffset (start of 'style="...') to find the correct DOM node
