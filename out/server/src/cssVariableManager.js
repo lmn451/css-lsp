@@ -6,6 +6,7 @@ const vscode_languageserver_textdocument_1 = require("vscode-languageserver-text
 const vscode_uri_1 = require("vscode-uri");
 const glob_1 = require("glob");
 const fs = require("fs");
+const csstree = require("css-tree");
 const domTree_1 = require("./domTree");
 class CssVariableManager {
     constructor() {
@@ -97,53 +98,84 @@ class CssVariableManager {
         }
     }
     parseCssText(text, uri, document, offset) {
-        // Parse variable definitions with their selectors
-        const defRegex = /(--[\w-]+)\s*:\s*([^;]+);/g;
-        let match;
-        while ((match = defRegex.exec(text)) !== null) {
-            const name = match[1];
-            let value = match[2].trim();
-            // Check for !important
-            const important = value.endsWith('!important');
-            if (important) {
-                value = value.replace(/\s*!important\s*$/, '').trim();
-            }
-            // Extract the selector for this variable definition
-            const selector = this.extractSelectorAtPosition(text, match.index);
-            const startPos = document.positionAt(offset + match.index);
-            const endPos = document.positionAt(offset + match.index + match[0].length);
-            const variable = {
-                name,
-                value,
-                uri,
-                range: node_1.Range.create(startPos, endPos),
-                selector: selector,
-                important: important,
-                sourcePosition: offset + match.index
-            };
-            if (!this.variables.has(name)) {
-                this.variables.set(name, []);
-            }
-            this.variables.get(name)?.push(variable);
+        try {
+            const ast = csstree.parse(text, {
+                positions: true,
+                onParseError: () => { } // Ignore errors to be tolerant
+            });
+            const selectorStack = [];
+            csstree.walk(ast, {
+                enter: (node) => {
+                    if (node.type === 'Rule') {
+                        let selector = '';
+                        if (node.prelude && node.prelude.type === 'Raw') {
+                            // Clean up raw selector if possible, or just take it
+                            selector = node.prelude.value;
+                        }
+                        else {
+                            selector = csstree.generate(node.prelude);
+                        }
+                        selectorStack.push(selector);
+                    }
+                    if (node.type === 'Declaration' && node.property.startsWith('--')) {
+                        const name = node.property;
+                        const value = csstree.generate(node.value).trim();
+                        const important = node.important === true || node.important === 'important';
+                        const selector = selectorStack.length > 0 ? selectorStack[selectorStack.length - 1] : ':root';
+                        if (node.loc) {
+                            const startPos = document.positionAt(offset + node.loc.start.offset);
+                            const endPos = document.positionAt(offset + node.loc.end.offset);
+                            const variable = {
+                                name,
+                                value,
+                                uri,
+                                range: node_1.Range.create(startPos, endPos),
+                                selector,
+                                important,
+                                sourcePosition: offset + node.loc.start.offset
+                            };
+                            if (!this.variables.has(name)) {
+                                this.variables.set(name, []);
+                            }
+                            this.variables.get(name)?.push(variable);
+                        }
+                    }
+                    if (node.type === 'Function' && node.name === 'var') {
+                        const children = node.children;
+                        if (children && children.head) {
+                            const firstChild = children.head.data;
+                            // Handle var(--name) or var(--name, fallback)
+                            // In csstree, --name is an Identifier
+                            if (firstChild.type === 'Identifier' && firstChild.name.startsWith('--')) {
+                                const name = firstChild.name;
+                                const usageContext = selectorStack.length > 0 ? selectorStack[selectorStack.length - 1] : '';
+                                if (node.loc) {
+                                    const startPos = document.positionAt(offset + node.loc.start.offset);
+                                    const endPos = document.positionAt(offset + node.loc.end.offset);
+                                    const usage = {
+                                        name,
+                                        uri,
+                                        range: node_1.Range.create(startPos, endPos),
+                                        usageContext
+                                    };
+                                    if (!this.usages.has(name)) {
+                                        this.usages.set(name, []);
+                                    }
+                                    this.usages.get(name)?.push(usage);
+                                }
+                            }
+                        }
+                    }
+                },
+                leave: (node) => {
+                    if (node.type === 'Rule') {
+                        selectorStack.pop();
+                    }
+                }
+            });
         }
-        // Parse variable usages: var(--variable-name) or var(--variable-name, fallback)
-        const usageRegex = /var\((--[\w-]+)(?:\s*,\s*[^)]+)?\)/g;
-        while ((match = usageRegex.exec(text)) !== null) {
-            const name = match[1];
-            const startPos = document.positionAt(offset + match.index);
-            const endPos = document.positionAt(offset + match.index + match[0].length);
-            // Extract the selector context for this usage
-            const usageContext = this.extractSelectorAtPosition(text, match.index);
-            const usage = {
-                name,
-                uri,
-                range: node_1.Range.create(startPos, endPos),
-                usageContext: usageContext
-            };
-            if (!this.usages.has(name)) {
-                this.usages.set(name, []);
-            }
-            this.usages.get(name)?.push(usage);
+        catch (e) {
+            console.error(`Error parsing CSS in ${uri}:`, e);
         }
     }
     /**
@@ -151,28 +183,47 @@ class CssVariableManager {
      * Inline styles don't have selectors, they apply directly to elements (highest specificity).
      */
     parseInlineStyle(text, uri, document, offset, attributeOffset) {
-        // Parse variable usages: var(--variable-name)
-        const usageRegex = /var\((--[\w-]+)(?:\s*,\s*[^)]+)?\)/g;
-        let match;
-        while ((match = usageRegex.exec(text)) !== null) {
-            const name = match[1];
-            const startPos = document.positionAt(offset + match.index);
-            const endPos = document.positionAt(offset + match.index + match[0].length);
-            // Try to find the DOM node for this inline style
-            const domTree = this.domTrees.get(uri);
-            // Use the attributeOffset (start of 'style="...') to find the correct DOM node
-            const domNode = domTree?.findNodeAtPosition(attributeOffset);
-            const usage = {
-                name,
-                uri,
-                range: node_1.Range.create(startPos, endPos),
-                usageContext: 'inline-style', // Special marker for inline styles
-                domNode: domNode
-            };
-            if (!this.usages.has(name)) {
-                this.usages.set(name, []);
-            }
-            this.usages.get(name)?.push(usage);
+        try {
+            const ast = csstree.parse(text, {
+                context: 'declarationList',
+                positions: true,
+                onParseError: () => { }
+            });
+            csstree.walk(ast, {
+                enter: (node) => {
+                    if (node.type === 'Function' && node.name === 'var') {
+                        const children = node.children;
+                        if (children && children.head) {
+                            const firstChild = children.head.data;
+                            if (firstChild.type === 'Identifier' && firstChild.name.startsWith('--')) {
+                                const name = firstChild.name;
+                                if (node.loc) {
+                                    const startPos = document.positionAt(offset + node.loc.start.offset);
+                                    const endPos = document.positionAt(offset + node.loc.end.offset);
+                                    // Try to find the DOM node for this inline style
+                                    const domTree = this.domTrees.get(uri);
+                                    // Use the attributeOffset (start of 'style="...') to find the correct DOM node
+                                    const domNode = domTree?.findNodeAtPosition(attributeOffset);
+                                    const usage = {
+                                        name,
+                                        uri,
+                                        range: node_1.Range.create(startPos, endPos),
+                                        usageContext: 'inline-style',
+                                        domNode: domNode
+                                    };
+                                    if (!this.usages.has(name)) {
+                                        this.usages.set(name, []);
+                                    }
+                                    this.usages.get(name)?.push(usage);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        catch (e) {
+            console.error(`Error parsing inline style in ${uri}:`, e);
         }
     }
     async updateFile(uri) {
@@ -279,45 +330,6 @@ class CssVariableManager {
      */
     getDOMTree(uri) {
         return this.domTrees.get(uri);
-    }
-    /**
-     * Extract the CSS selector at a given position in the text.
-     * This finds the selector of the CSS rule containing the position.
-     *
-     * Example: For ":root { --color: red; }", returns ":root"
-     */
-    extractSelectorAtPosition(text, position) {
-        // Find the opening brace before this position
-        let bracePos = text.lastIndexOf('{', position);
-        if (bracePos === -1) {
-            return ''; // No selector found
-        }
-        // Find the start of the selector (after previous closing brace or start of text)
-        let prevCloseBrace = text.lastIndexOf('}', bracePos);
-        let selectorStart = prevCloseBrace === -1 ? 0 : prevCloseBrace + 1;
-        // Extract and clean the selector
-        let selector = text.substring(selectorStart, bracePos).trim();
-        // Remove CSS at-rules (@media, @keyframes, etc.) - keep searching backwards
-        if (selector.startsWith('@')) {
-            // Try to find the actual selector inside the at-rule
-            const nestedBrace = text.lastIndexOf('{', bracePos - 1);
-            if (nestedBrace > selectorStart) {
-                const nestedPrevBrace = text.lastIndexOf('}', nestedBrace);
-                const nestedStart = nestedPrevBrace === -1 ? prevCloseBrace + 1 : nestedPrevBrace + 1;
-                selector = text.substring(nestedStart, nestedBrace).trim();
-                // If still an at-rule, default to empty
-                if (selector.startsWith('@')) {
-                    selector = '';
-                }
-            }
-        }
-        // Clean up comments
-        selector = selector.replace(/\/\*.*?\*\//g, '').trim();
-        // For multiple selectors (comma-separated), take the first one
-        if (selector.includes(',')) {
-            selector = selector.split(',')[0].trim();
-        }
-        return selector || '';
     }
 }
 exports.CssVariableManager = CssVariableManager;

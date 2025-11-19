@@ -1,0 +1,78 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const cssVariableManager_1 = require("../src/cssVariableManager");
+const vscode_languageserver_textdocument_1 = require("vscode-languageserver-textdocument");
+const assert = require("assert");
+const manager = new cssVariableManager_1.CssVariableManager();
+function createDoc(uri, content, languageId = 'css') {
+    return vscode_languageserver_textdocument_1.TextDocument.create(uri, languageId, 1, content);
+}
+console.log('Running File Types and Updates tests...');
+// Test 1: SCSS Support
+{
+    const content = `
+	$ignored-sass-var: 10px;
+	:root {
+		--scss-var: #f00;
+	}
+	.nested {
+		--nested-scss-var: #0f0;
+		color: var(--scss-var);
+	}
+	`;
+    const doc = createDoc('file:///test.scss', content, 'scss');
+    manager.parseDocument(doc);
+    const vars = manager.getAllVariables();
+    const scssVar = vars.find(v => v.name === '--scss-var');
+    const nestedVar = vars.find(v => v.name === '--nested-scss-var');
+    assert.ok(scssVar, 'Should find SCSS variable');
+    assert.strictEqual(scssVar?.value, '#f00');
+    assert.ok(nestedVar, 'Should find nested SCSS variable');
+    assert.strictEqual(nestedVar?.value, '#0f0');
+    // Verify usages
+    const usages = manager.getVariableUsages('--scss-var');
+    assert.strictEqual(usages.length, 1, 'Should find SCSS variable usage');
+    console.log('Test 1 passed: SCSS Support');
+}
+// Test 2: LESS Support
+{
+    const content = `
+	@ignored-less-var: 10px;
+	:root {
+		--less-var: #00f;
+	}
+	`;
+    const doc = createDoc('file:///test.less', content, 'less');
+    manager.parseDocument(doc);
+    const lessVar = manager.getVariables('--less-var')[0];
+    assert.ok(lessVar, 'Should find LESS variable');
+    assert.strictEqual(lessVar.value, '#00f');
+    console.log('Test 2 passed: LESS Support');
+}
+// Test 3: Incremental Updates (removeFile)
+{
+    const uri = 'file:///incremental.css';
+    const doc = createDoc(uri, ':root { --incremental: yes; }');
+    // 1. Add file
+    manager.parseDocument(doc);
+    assert.strictEqual(manager.getVariables('--incremental').length, 1, 'Variable should exist');
+    // 2. Remove file
+    manager.removeFile(uri);
+    assert.strictEqual(manager.getVariables('--incremental').length, 0, 'Variable should be removed after removeFile');
+    console.log('Test 3 passed: Incremental Updates (removeFile)');
+}
+// Test 4: Incremental Updates (Overwrite/Update)
+{
+    const uri = 'file:///update.css';
+    // 1. Initial state
+    manager.parseDocument(createDoc(uri, ':root { --update-var: v1; }'));
+    assert.strictEqual(manager.getVariables('--update-var')[0].value, 'v1');
+    // 2. Update state (simulate file change)
+    manager.parseDocument(createDoc(uri, ':root { --update-var: v2; }'));
+    const vars = manager.getVariables('--update-var');
+    assert.strictEqual(vars.length, 1, 'Should still have 1 variable definition');
+    assert.strictEqual(vars[0].value, 'v2', 'Value should be updated');
+    console.log('Test 4 passed: Incremental Updates (Overwrite)');
+}
+console.log('All File Types and Updates tests passed!');
+//# sourceMappingURL=fileTypesAndUpdates.test.js.map

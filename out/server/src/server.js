@@ -7,6 +7,10 @@ const specificity_1 = require("./specificity");
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
 const connection = (0, node_1.createConnection)(node_1.ProposedFeatures.all);
+function logDebug(label, payload) {
+    // eslint-disable-next-line no-console
+    console.error('[css-lsp]', label, JSON.stringify(payload));
+}
 // Create a simple text document manager.
 const documents = new node_1.TextDocuments(vscode_languageserver_textdocument_1.TextDocument);
 const cssVariableManager = new cssVariableManager_1.CssVariableManager();
@@ -14,6 +18,12 @@ let hasConfigurationCapability = false;
 let hasWorkspaceFolderCapability = false;
 let hasDiagnosticRelatedInformationCapability = false;
 connection.onInitialize((params) => {
+    logDebug('initialize', {
+        rootUri: params.rootUri,
+        rootPath: params.rootPath,
+        workspaceFolders: params.workspaceFolders,
+        capabilities: params.capabilities,
+    });
     const capabilities = params.capabilities;
     // Does the client support the `workspace/configuration` request?
     // If not, we fall back using global settings.
@@ -141,8 +151,9 @@ async function validateTextDocument(textDocument) {
     connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
 }
 connection.onDidChangeWatchedFiles(async (change) => {
-    // Monitored files have changed in VSCode
+    // Monitored files have changed in the client
     connection.console.log('Received file change event');
+    logDebug('didChangeWatchedFiles', change);
     for (const fileEvent of change.changes) {
         if (fileEvent.type === node_1.FileChangeType.Deleted) {
             cssVariableManager.removeFile(fileEvent.uri);

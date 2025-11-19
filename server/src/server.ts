@@ -32,6 +32,11 @@ import { calculateSpecificity, compareSpecificity, formatSpecificity, matchesCon
 // Also include all preview / proposed LSP features.
 const connection = createConnection(ProposedFeatures.all);
 
+function logDebug(label: string, payload: unknown) {
+	// eslint-disable-next-line no-console
+	console.error('[css-lsp]', label, JSON.stringify(payload));
+}
+
 // Create a simple text document manager.
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 const cssVariableManager = new CssVariableManager();
@@ -41,6 +46,13 @@ let hasWorkspaceFolderCapability = false;
 let hasDiagnosticRelatedInformationCapability = false;
 
 connection.onInitialize((params: InitializeParams) => {
+	logDebug('initialize', {
+		rootUri: params.rootUri,
+		rootPath: (params as any).rootPath,
+		workspaceFolders: (params as any).workspaceFolders,
+		capabilities: params.capabilities,
+	});
+
 	const capabilities = params.capabilities;
 
 	// Does the client support the `workspace/configuration` request?
@@ -201,8 +213,9 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
 }
 
 connection.onDidChangeWatchedFiles(async (change) => {
-	// Monitored files have changed in VSCode
+	// Monitored files have changed in the client
 	connection.console.log('Received file change event');
+	logDebug('didChangeWatchedFiles', change);
 
 	for (const fileEvent of change.changes) {
 		if (fileEvent.type === FileChangeType.Deleted) {
