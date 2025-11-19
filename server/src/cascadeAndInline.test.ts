@@ -8,7 +8,7 @@ function createDoc(uri: string, content: string, languageId: string = 'css') {
 	return TextDocument.create(uri, languageId, 1, content);
 }
 
-console.log('Running Easy Wins tests...');
+console.log('Running Cascade and Inline tests...');
 
 // Test 1: !important Tracking
 {
@@ -82,4 +82,4 @@ console.log('Running Easy Wins tests...');
 	console.log('Test 4 passed: Combined cascade tracking');
 }
 
-console.log('All easy wins tests passed!');
+console.log('All Cascade and Inline tests passed!');

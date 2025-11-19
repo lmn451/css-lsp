@@ -4,7 +4,7 @@ A VS Code extension that provides Language Server Protocol (LSP) support for CSS
 
 ## Features
 
-- **Cross-file Completion**: Suggests CSS variables defined in other `.css` files or HTML `<style>` blocks.
+- **Cross-file Completion**: Suggests CSS variables defined in other `.css`, `.scss`, `.sass`, `.less` files or HTML `<style>` blocks.
 - **Hover Information**: Shows the value of the CSS variable on hover.
 - **Go to Definition**: Jumps to the line where the variable is defined.
 - **HTML Support**: Parses `<style>` blocks in HTML files for variable definitions.

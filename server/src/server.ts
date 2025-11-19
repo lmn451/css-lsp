@@ -16,7 +16,8 @@ import {
 	DocumentSymbol,
 	WorkspaceSymbol,
 	WorkspaceEdit,
-	TextEdit
+	TextEdit,
+	FileChangeType
 } from 'vscode-languageserver/node';
 
 import {
@@ -203,15 +204,20 @@ connection.onDidChangeWatchedFiles(async (change) => {
 	// Monitored files have changed in VSCode
 	connection.console.log('Received file change event');
 
-	// Re-scan workspace to pick up any new/changed/deleted files
-	const workspaceFolders = await connection.workspace.getWorkspaceFolders();
-	if (workspaceFolders) {
-		const folderUris = workspaceFolders.map(f => f.uri);
-		await cssVariableManager.scanWorkspace(folderUris);
-
-		// Revalidate all open documents
-		documents.all().forEach(validateTextDocument);
+	for (const fileEvent of change.changes) {
+		if (fileEvent.type === FileChangeType.Deleted) {
+			cssVariableManager.removeFile(fileEvent.uri);
+		} else {
+			// Created or Changed
+			// If the document is open, we skip because onDidChangeContent handles it.
+			if (!documents.get(fileEvent.uri)) {
+				await cssVariableManager.updateFile(fileEvent.uri);
+			}
+		}
 	}
+
+	// Revalidate all open documents
+	documents.all().forEach(validateTextDocument);
 });
 
 // This handler provides the initial list of the completion items.

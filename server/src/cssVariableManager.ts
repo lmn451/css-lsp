@@ -37,8 +37,8 @@ export class CssVariableManager {
 			const folderUri = URI.parse(folder);
 			const folderPath = folderUri.fsPath;
 
-			// Find all CSS and HTML files
-			const files = await glob('**/*.{css,html}', {
+			// Find all CSS, SCSS, SASS, LESS and HTML files
+			const files = await glob('**/*.{css,scss,sass,less,html}', {
 				cwd: folderPath,
 				ignore: ['**/node_modules/**', '**/dist/**', '**/out/**', '**/.git/**'],
 				absolute: true
@@ -49,11 +49,19 @@ export class CssVariableManager {
 				try {
 					const content = fs.readFileSync(filePath, 'utf-8');
 					const fileUri = URI.file(filePath).toString();
-					const languageId = filePath.endsWith('.html') ? 'html' : 'css';
+					
+					let languageId = 'css';
+					if (filePath.endsWith('.html')) {
+						languageId = 'html';
+					} else if (filePath.endsWith('.scss')) {
+						languageId = 'scss';
+					} else if (filePath.endsWith('.sass')) {
+						languageId = 'sass';
+					} else if (filePath.endsWith('.less')) {
+						languageId = 'less';
+					}
 
-					// Create a TextDocument for parsing
-					const document = TextDocument.create(fileUri, languageId, 1, content);
-					this.parseDocument(document);
+					this.parseContent(content, fileUri, languageId);
 				} catch (error) {
 					console.error(`Error scanning file ${filePath}:`, error);
 				}
@@ -62,15 +70,15 @@ export class CssVariableManager {
 	}
 
 	public parseDocument(document: TextDocument): void {
-		const text = document.getText();
-		const uri = document.uri;
+		this.parseContent(document.getText(), document.uri, document.languageId);
+	}
 
+	public parseContent(text: string, uri: string, languageId: string): void {
 		// Clear existing variables and usages for this document
-		this.clearDocumentVariables(uri);
-		this.clearDocumentUsages(uri);
-		this.clearDocumentDOMTree(uri); // Clear DOM tree as well
+		this.removeFile(uri);
 
-		if (document.languageId === 'html') {
+		if (languageId === 'html') {
+			// ... rest of the logic
 			// Build DOM tree for HTML documents
 			try {
 				const domTree = new DOMTree(text);
@@ -85,6 +93,10 @@ export class CssVariableManager {
 			while ((styleMatch = styleRegex.exec(text)) !== null) {
 				const styleContent = styleMatch[1];
 				const styleStartOffset = styleMatch.index + styleMatch[0].indexOf(styleContent);
+				// Create a dummy document for position matching if needed, or we need to refactor parseCssText to take direct text/uri
+				// parseCssText uses 'document.positionAt' which requires a TextDocument object.
+				// We should create a temporary TextDocument here.
+				const document = TextDocument.create(uri, languageId, 1, text);
 				this.parseCssText(styleContent, uri, document, styleStartOffset);
 			}
 
@@ -94,11 +106,12 @@ export class CssVariableManager {
 			while ((inlineMatch = inlineStyleRegex.exec(text)) !== null) {
 				const styleContent = inlineMatch[1];
 				const styleStartOffset = inlineMatch.index + inlineMatch[0].indexOf(styleContent);
-				// The offset for finding the DOM node should be the start of the attribute, not its content.
-				// The inlineMatch.index is the start of "style=".
+				const document = TextDocument.create(uri, languageId, 1, text);
 				this.parseInlineStyle(styleContent, uri, document, styleStartOffset, inlineMatch.index);
 			}
 		} else {
+			// CSS, SCSS, SASS, LESS
+			const document = TextDocument.create(uri, languageId, 1, text);
 			this.parseCssText(text, uri, document, 0);
 		}
 	}
@@ -195,6 +208,46 @@ export class CssVariableManager {
 			}
 			this.usages.get(name)?.push(usage);
 		}
+	}
+
+	public async updateFile(uri: string): Promise<void> {
+		try {
+			const filePath = URI.parse(uri).fsPath;
+			if (!fs.existsSync(filePath)) {
+				this.removeFile(uri);
+				return;
+			}
+
+			const stat = fs.statSync(filePath);
+			if (!stat.isFile()) {
+				return;
+			}
+
+			const content = fs.readFileSync(filePath, 'utf-8');
+			let languageId = 'css';
+			if (filePath.endsWith('.html')) {
+				languageId = 'html';
+			} else if (filePath.endsWith('.scss')) {
+				languageId = 'scss';
+			} else if (filePath.endsWith('.sass')) {
+				languageId = 'sass';
+			} else if (filePath.endsWith('.less')) {
+				languageId = 'less';
+			} else if (!filePath.endsWith('.css')) {
+				// Skip unsupported file types
+				return;
+			}
+
+			this.parseContent(content, uri, languageId);
+		} catch (error) {
+			console.error(`Error updating file ${uri}:`, error);
+		}
+	}
+
+	public removeFile(uri: string): void {
+		this.clearDocumentVariables(uri);
+		this.clearDocumentUsages(uri);
+		this.clearDocumentDOMTree(uri);
 	}
 
 	public clearDocumentVariables(uri: string): void {
