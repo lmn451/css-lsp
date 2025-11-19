@@ -20,8 +20,8 @@ class CssVariableManager {
         for (const folder of workspaceFolders) {
             const folderUri = vscode_uri_1.URI.parse(folder);
             const folderPath = folderUri.fsPath;
-            // Find all CSS and HTML files
-            const files = await (0, glob_1.glob)('**/*.{css,html}', {
+            // Find all CSS, SCSS, SASS, LESS and HTML files
+            const files = await (0, glob_1.glob)('**/*.{css,scss,sass,less,html}', {
                 cwd: folderPath,
                 ignore: ['**/node_modules/**', '**/dist/**', '**/out/**', '**/.git/**'],
                 absolute: true
@@ -31,10 +31,20 @@ class CssVariableManager {
                 try {
                     const content = fs.readFileSync(filePath, 'utf-8');
                     const fileUri = vscode_uri_1.URI.file(filePath).toString();
-                    const languageId = filePath.endsWith('.html') ? 'html' : 'css';
-                    // Create a TextDocument for parsing
-                    const document = vscode_languageserver_textdocument_1.TextDocument.create(fileUri, languageId, 1, content);
-                    this.parseDocument(document);
+                    let languageId = 'css';
+                    if (filePath.endsWith('.html')) {
+                        languageId = 'html';
+                    }
+                    else if (filePath.endsWith('.scss')) {
+                        languageId = 'scss';
+                    }
+                    else if (filePath.endsWith('.sass')) {
+                        languageId = 'sass';
+                    }
+                    else if (filePath.endsWith('.less')) {
+                        languageId = 'less';
+                    }
+                    this.parseContent(content, fileUri, languageId);
                 }
                 catch (error) {
                     console.error(`Error scanning file ${filePath}:`, error);
@@ -43,13 +53,13 @@ class CssVariableManager {
         }
     }
     parseDocument(document) {
-        const text = document.getText();
-        const uri = document.uri;
+        this.parseContent(document.getText(), document.uri, document.languageId);
+    }
+    parseContent(text, uri, languageId) {
         // Clear existing variables and usages for this document
-        this.clearDocumentVariables(uri);
-        this.clearDocumentUsages(uri);
-        this.clearDocumentDOMTree(uri); // Clear DOM tree as well
-        if (document.languageId === 'html') {
+        this.removeFile(uri);
+        if (languageId === 'html') {
+            // ... rest of the logic
             // Build DOM tree for HTML documents
             try {
                 const domTree = new domTree_1.DOMTree(text);
@@ -64,6 +74,10 @@ class CssVariableManager {
             while ((styleMatch = styleRegex.exec(text)) !== null) {
                 const styleContent = styleMatch[1];
                 const styleStartOffset = styleMatch.index + styleMatch[0].indexOf(styleContent);
+                // Create a dummy document for position matching if needed, or we need to refactor parseCssText to take direct text/uri
+                // parseCssText uses 'document.positionAt' which requires a TextDocument object.
+                // We should create a temporary TextDocument here.
+                const document = vscode_languageserver_textdocument_1.TextDocument.create(uri, languageId, 1, text);
                 this.parseCssText(styleContent, uri, document, styleStartOffset);
             }
             // Parse inline style attributes
@@ -72,12 +86,13 @@ class CssVariableManager {
             while ((inlineMatch = inlineStyleRegex.exec(text)) !== null) {
                 const styleContent = inlineMatch[1];
                 const styleStartOffset = inlineMatch.index + inlineMatch[0].indexOf(styleContent);
-                // The offset for finding the DOM node should be the start of the attribute, not its content.
-                // The inlineMatch.index is the start of "style=".
+                const document = vscode_languageserver_textdocument_1.TextDocument.create(uri, languageId, 1, text);
                 this.parseInlineStyle(styleContent, uri, document, styleStartOffset, inlineMatch.index);
             }
         }
         else {
+            // CSS, SCSS, SASS, LESS
+            const document = vscode_languageserver_textdocument_1.TextDocument.create(uri, languageId, 1, text);
             this.parseCssText(text, uri, document, 0);
         }
     }
@@ -159,6 +174,46 @@ class CssVariableManager {
             }
             this.usages.get(name)?.push(usage);
         }
+    }
+    async updateFile(uri) {
+        try {
+            const filePath = vscode_uri_1.URI.parse(uri).fsPath;
+            if (!fs.existsSync(filePath)) {
+                this.removeFile(uri);
+                return;
+            }
+            const stat = fs.statSync(filePath);
+            if (!stat.isFile()) {
+                return;
+            }
+            const content = fs.readFileSync(filePath, 'utf-8');
+            let languageId = 'css';
+            if (filePath.endsWith('.html')) {
+                languageId = 'html';
+            }
+            else if (filePath.endsWith('.scss')) {
+                languageId = 'scss';
+            }
+            else if (filePath.endsWith('.sass')) {
+                languageId = 'sass';
+            }
+            else if (filePath.endsWith('.less')) {
+                languageId = 'less';
+            }
+            else if (!filePath.endsWith('.css')) {
+                // Skip unsupported file types
+                return;
+            }
+            this.parseContent(content, uri, languageId);
+        }
+        catch (error) {
+            console.error(`Error updating file ${uri}:`, error);
+        }
+    }
+    removeFile(uri) {
+        this.clearDocumentVariables(uri);
+        this.clearDocumentUsages(uri);
+        this.clearDocumentDOMTree(uri);
     }
     clearDocumentVariables(uri) {
         for (const [name, vars] of this.variables.entries()) {
