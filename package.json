@@ -5,7 +5,7 @@
 	"scripts": {
 		"compile": "tsc -b",
 		"watch": "tsc -b -w",
-		"postinstall": "cd client && npm install && cd ../server && npm install",
+		"postinstall": "cd server && npm install",
 		"test": "cd server && npm run test:all"
 	},
 	"devDependencies": {

@@ -1,6 +1,6 @@
 # CSS Variable Language Server
 
-A VS Code extension that provides Language Server Protocol (LSP) support for CSS variables (custom properties).
+A Language Server Protocol (LSP) implementation for CSS variables (custom properties). This server can be used by any LSP-compatible editor.
 
 ## Features
 
@@ -19,17 +19,14 @@ A VS Code extension that provides Language Server Protocol (LSP) support for CSS
 ### Installation
 
 1.  Clone the repository.
-2.  Install dependencies for both client and server:
+2.  Install dependencies:
     ```bash
     npm install
     ```
 
-### Running the Extension
+### Using the Language Server
 
-1.  Open the project in VS Code.
-2.  Press `F5` (or go to **Run and Debug** > **Launch Client**) to start a new VS Code window with the extension loaded.
-3.  In the new window (Extension Development Host), open a folder containing CSS or HTML files.
-4.  Define variables in one file (e.g., `:root { --my-color: red; }`) and try to use them in another (`color: var(--my-color)`).
+This is a standalone LSP server. To use it, you'll need to integrate it with an LSP client (e.g., a VSCode extension). See the `../css-variable-vscode` project for a VSCode extension that uses this server.
 
 ### Running Tests
 
@@ -77,5 +74,4 @@ _Context: `div`_
 
 ## Project Structure
 
-- `client/`: VS Code extension code (Language Client).
-- `server/`: Node.js Language Server code (Analysis logic).
+- `server/`: Node.js Language Server implementation (CSS variable analysis logic).
