@@ -8,11 +8,33 @@ const glob_1 = require("glob");
 const fs = require("fs");
 const csstree = require("css-tree");
 const domTree_1 = require("./domTree");
+const node_html_parser_1 = require("node-html-parser");
 class CssVariableManager {
-    constructor() {
+    constructor(logger) {
         this.variables = new Map();
         this.usages = new Map();
         this.domTrees = new Map(); // URI -> DOM tree
+        const LOG_FILE = '/tmp/css.log';
+        this.logger = logger || {
+            log: (message) => {
+                console.log(message);
+                try {
+                    fs.appendFileSync(LOG_FILE, `[INFO] ${new Date().toISOString()} ${message}\n`);
+                }
+                catch (e) {
+                    // Ignore file write errors
+                }
+            },
+            error: (message) => {
+                console.error(message);
+                try {
+                    fs.appendFileSync(LOG_FILE, `[ERROR] ${new Date().toISOString()} ${message}\n`);
+                }
+                catch (e) {
+                    // Ignore file write errors
+                }
+            }
+        };
     }
     /**
      * Scan all CSS and HTML files in the workspace
@@ -27,6 +49,7 @@ class CssVariableManager {
                 ignore: ['**/node_modules/**', '**/dist/**', '**/out/**', '**/.git/**'],
                 absolute: true
             });
+            this.logger.log(`[css-lsp] Scanned ${folder}: found ${files.length} files`);
             // Parse each file
             for (const filePath of files) {
                 try {
@@ -48,9 +71,10 @@ class CssVariableManager {
                     this.parseContent(content, fileUri, languageId);
                 }
                 catch (error) {
-                    console.error(`Error scanning file ${filePath}:`, error);
+                    this.logger.error(`[css-lsp] Error scanning file ${filePath}: ${error}`);
                 }
             }
+            this.logger.log(`[css-lsp] Workspace scan for ${folder} complete.`);
         }
     }
     parseDocument(document) {
@@ -60,35 +84,62 @@ class CssVariableManager {
         // Clear existing variables and usages for this document
         this.removeFile(uri);
         if (languageId === 'html') {
-            // ... rest of the logic
             // Build DOM tree for HTML documents
             try {
                 const domTree = new domTree_1.DOMTree(text);
                 this.domTrees.set(uri, domTree);
             }
             catch (error) {
-                console.error(`Error parsing HTML for ${uri}:`, error);
+                this.logger.error(`Error parsing HTML for ${uri}: ${error}`);
             }
-            // Parse <style> blocks
-            const styleRegex = /<style[^>]*>([\s\S]*?)<\/style>/g;
-            let styleMatch;
-            while ((styleMatch = styleRegex.exec(text)) !== null) {
-                const styleContent = styleMatch[1];
-                const styleStartOffset = styleMatch.index + styleMatch[0].indexOf(styleContent);
-                // Create a dummy document for position matching if needed, or we need to refactor parseCssText to take direct text/uri
-                // parseCssText uses 'document.positionAt' which requires a TextDocument object.
-                // We should create a temporary TextDocument here.
+            // Use node-html-parser to extract style blocks and inline styles
+            try {
+                const root = (0, node_html_parser_1.parse)(text, {
+                    lowerCaseTagName: true,
+                    comment: false, // Automatically ignores comments
+                    blockTextElements: {
+                        script: true,
+                        noscript: true,
+                        style: true, // Keep style as block text so we can extract content
+                    }
+                });
                 const document = vscode_languageserver_textdocument_1.TextDocument.create(uri, languageId, 1, text);
-                this.parseCssText(styleContent, uri, document, styleStartOffset);
+                // Parse <style> blocks
+                const styleElements = root.querySelectorAll('style');
+                for (const styleEl of styleElements) {
+                    const styleContent = styleEl.textContent;
+                    if (styleContent && styleEl.range) {
+                        // Calculate the offset where the CSS content starts
+                        // styleEl.range gives us the full element from '<style>' to '</style>'
+                        // We need to find where the content starts (after the opening tag)
+                        const elementText = text.substring(styleEl.range[0], styleEl.range[1]);
+                        const openingTagEnd = elementText.indexOf('>') + 1;
+                        const styleStartOffset = styleEl.range[0] + openingTagEnd;
+                        this.parseCssText(styleContent, uri, document, styleStartOffset);
+                    }
+                }
+                // Parse inline style attributes
+                const elementsWithStyle = root.querySelectorAll('[style]');
+                for (const el of elementsWithStyle) {
+                    const styleAttr = el.getAttribute('style');
+                    if (styleAttr && el.range) {
+                        // Find the position of the style attribute value in the original text
+                        const elementText = text.substring(el.range[0], el.range[1]);
+                        const styleAttrStart = elementText.indexOf('style');
+                        if (styleAttrStart !== -1) {
+                            // Find where the attribute value starts (after the opening quote)
+                            const valueStart = elementText.indexOf(styleAttr, styleAttrStart);
+                            if (valueStart !== -1) {
+                                const styleStartOffset = el.range[0] + valueStart;
+                                const attributeOffset = el.range[0] + styleAttrStart;
+                                this.parseInlineStyle(styleAttr, uri, document, styleStartOffset, attributeOffset);
+                            }
+                        }
+                    }
+                }
             }
-            // Parse inline style attributes
-            const inlineStyleRegex = /style\s*=\s*["']([^"']+)["']/g;
-            let inlineMatch;
-            while ((inlineMatch = inlineStyleRegex.exec(text)) !== null) {
-                const styleContent = inlineMatch[1];
-                const styleStartOffset = inlineMatch.index + inlineMatch[0].indexOf(styleContent);
-                const document = vscode_languageserver_textdocument_1.TextDocument.create(uri, languageId, 1, text);
-                this.parseInlineStyle(styleContent, uri, document, styleStartOffset, inlineMatch.index);
+            catch (error) {
+                this.logger.error(`Error parsing HTML content for ${uri}: ${error}`);
             }
         }
         else {
@@ -175,7 +226,7 @@ class CssVariableManager {
             });
         }
         catch (e) {
-            console.error(`Error parsing CSS in ${uri}:`, e);
+            this.logger.error(`Error parsing CSS in ${uri}: ${e}`);
         }
     }
     /**
@@ -223,13 +274,14 @@ class CssVariableManager {
             });
         }
         catch (e) {
-            console.error(`Error parsing inline style in ${uri}:`, e);
+            this.logger.error(`Error parsing inline style in ${uri}: ${e}`);
         }
     }
     async updateFile(uri) {
         try {
             const filePath = vscode_uri_1.URI.parse(uri).fsPath;
             if (!fs.existsSync(filePath)) {
+                this.logger.log(`[css-lsp] File ${uri} does not exist on disk, removing from manager.`);
                 this.removeFile(uri);
                 return;
             }
@@ -256,9 +308,11 @@ class CssVariableManager {
                 return;
             }
             this.parseContent(content, uri, languageId);
+            this.parseContent(content, uri, languageId);
+            this.logger.log(`[css-lsp] Updated file ${uri} from disk.`);
         }
         catch (error) {
-            console.error(`Error updating file ${uri}:`, error);
+            this.logger.error(`[css-lsp] Error updating file ${uri}: ${error}`);
         }
     }
     removeFile(uri) {

@@ -1,19 +1,36 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const node_1 = require("vscode-languageserver/node");
+const fs = require("fs");
 const vscode_languageserver_textdocument_1 = require("vscode-languageserver-textdocument");
 const cssVariableManager_1 = require("./cssVariableManager");
 const specificity_1 = require("./specificity");
+// Write startup log immediately
+try {
+    const startupMsg = `[STARTUP] ${new Date().toISOString()} CSS LSP Server starting\n`;
+    fs.appendFileSync('/tmp/css.log', startupMsg);
+}
+catch (e) {
+    // Ignore
+}
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
 const connection = (0, node_1.createConnection)(node_1.ProposedFeatures.all);
+fs.writeFile('/tmp/css2.log', 'asdf', { encoding: 'utf-8' }, () => { });
 function logDebug(label, payload) {
     // eslint-disable-next-line no-console
-    console.error('[css-lsp]', label, JSON.stringify(payload));
+    const message = `[css-lsp] ${label} ${JSON.stringify(payload)}`;
+    console.error(message);
+    try {
+        fs.appendFileSync('/tmp/css.log', `[DEBUG] ${new Date().toISOString()} ${message}\n`);
+    }
+    catch (e) {
+        // Ignore file write errors
+    }
 }
 // Create a simple text document manager.
 const documents = new node_1.TextDocuments(vscode_languageserver_textdocument_1.TextDocument);
-const cssVariableManager = new cssVariableManager_1.CssVariableManager();
+const cssVariableManager = new cssVariableManager_1.CssVariableManager(connection.console);
 let hasConfigurationCapability = false;
 let hasWorkspaceFolderCapability = false;
 let hasDiagnosticRelatedInformationCapability = false;
@@ -108,15 +125,21 @@ function getDocumentSettings(resource) {
     return result;
 }
 // Only keep settings for open documents
-documents.onDidClose(e => {
+documents.onDidClose(async (e) => {
+    connection.console.log(`[css-lsp] Document closed: ${e.document.uri}`);
     documentSettings.delete(e.document.uri);
-    cssVariableManager.clearDocumentVariables(e.document.uri);
+    // When a document is closed, we need to revert to the file system version
+    // instead of removing it completely (which would break workspace files).
+    // This handles cases where the editor had unsaved changes.
+    await cssVariableManager.updateFile(e.document.uri);
 });
 // The content of a text document has changed. This event is emitted
 // when the text document first opened or when its content has changed.
+// Note: We don't need a separate onDidOpen handler because onDidChangeContent
+// already fires when a document is first opened, avoiding double-parsing.
 documents.onDidChangeContent(change => {
     cssVariableManager.parseDocument(change.document);
-    // We could validate here if we wanted to check for undefined variables
+    validateTextDocument(change.document);
 });
 async function validateTextDocument(textDocument) {
     const settings = await getDocumentSettings(textDocument.uri);
@@ -353,9 +376,6 @@ connection.onDefinition((params) => {
     }
     return undefined;
 });
-// Make the text document manager listen on the connection
-// for open, change and close text document events
-documents.listen(connection);
 // Find all references handler
 connection.onReferences((params) => {
     const document = documents.get(params.textDocument.uri);

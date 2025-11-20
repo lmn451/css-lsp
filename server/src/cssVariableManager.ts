@@ -25,10 +25,38 @@ export interface CssVariableUsage {
 	domNode?: DOMNodeInfo; // DOM node if usage is in HTML
 }
 
+export interface Logger {
+	log(message: string): void;
+	error(message: string): void;
+}
+
 export class CssVariableManager {
 	private variables: Map<string, CssVariable[]> = new Map();
 	private usages: Map<string, CssVariableUsage[]> = new Map();
 	private domTrees: Map<string, DOMTree> = new Map(); // URI -> DOM tree
+	private logger: Logger;
+
+	constructor(logger?: Logger) {
+		const LOG_FILE = '/tmp/css.log';
+		this.logger = logger || {
+			log: (message: string) => {
+				console.log(message);
+				try {
+					fs.appendFileSync(LOG_FILE, `[INFO] ${new Date().toISOString()} ${message}\n`);
+				} catch (e) {
+					// Ignore file write errors
+				}
+			},
+			error: (message: string) => {
+				console.error(message);
+				try {
+					fs.appendFileSync(LOG_FILE, `[ERROR] ${new Date().toISOString()} ${message}\n`);
+				} catch (e) {
+					// Ignore file write errors
+				}
+			}
+		};
+	}
 
 	/**
 	 * Scan all CSS and HTML files in the workspace
@@ -44,6 +72,8 @@ export class CssVariableManager {
 				ignore: ['**/node_modules/**', '**/dist/**', '**/out/**', '**/.git/**'],
 				absolute: true
 			});
+
+			this.logger.log(`[css-lsp] Scanned ${folder}: found ${files.length} files`);
 
 			// Parse each file
 			for (const filePath of files) {
@@ -64,9 +94,11 @@ export class CssVariableManager {
 
 					this.parseContent(content, fileUri, languageId);
 				} catch (error) {
-					console.error(`Error scanning file ${filePath}:`, error);
+					this.logger.error(`[css-lsp] Error scanning file ${filePath}: ${error}`);
 				}
 			}
+			this.logger.log(`[css-lsp] Workspace scan for ${folder} complete.`);
+
 		}
 	}
 
@@ -84,7 +116,7 @@ export class CssVariableManager {
 				const domTree = new DOMTree(text);
 				this.domTrees.set(uri, domTree);
 			} catch (error) {
-				console.error(`Error parsing HTML for ${uri}:`, error);
+				this.logger.error(`Error parsing HTML for ${uri}: ${error}`);
 			}
 
 			// Use node-html-parser to extract style blocks and inline styles
@@ -137,7 +169,7 @@ export class CssVariableManager {
 					}
 				}
 			} catch (error) {
-				console.error(`Error parsing HTML content for ${uri}:`, error);
+				this.logger.error(`Error parsing HTML content for ${uri}: ${error}`);
 			}
 		} else {
 			// CSS, SCSS, SASS, LESS
@@ -232,7 +264,7 @@ export class CssVariableManager {
 				}
 			});
 		} catch (e) {
-			console.error(`Error parsing CSS in ${uri}:`, e);
+			this.logger.error(`Error parsing CSS in ${uri}: ${e}`);
 		}
 	}
 
@@ -285,7 +317,7 @@ export class CssVariableManager {
 				}
 			});
 		} catch (e) {
-			console.error(`Error parsing inline style in ${uri}:`, e);
+			this.logger.error(`Error parsing inline style in ${uri}: ${e}`);
 		}
 	}
 
@@ -293,6 +325,7 @@ export class CssVariableManager {
 		try {
 			const filePath = URI.parse(uri).fsPath;
 			if (!fs.existsSync(filePath)) {
+				this.logger.log(`[css-lsp] File ${uri} does not exist on disk, removing from manager.`);
 				this.removeFile(uri);
 				return;
 			}
@@ -318,8 +351,10 @@ export class CssVariableManager {
 			}
 
 			this.parseContent(content, uri, languageId);
+			this.parseContent(content, uri, languageId);
+			this.logger.log(`[css-lsp] Updated file ${uri} from disk.`);
 		} catch (error) {
-			console.error(`Error updating file ${uri}:`, error);
+			this.logger.error(`[css-lsp] Error updating file ${uri}: ${error}`);
 		}
 	}
 

@@ -1,1 +1,1 @@
-{"root":["../src/cssvariablemanager.ts","../src/server.ts","../src/test.ts"],"version":"5.9.3"}
+{"root":["../../client/src/extension.ts","../src/cascadeandinline.test.ts","../src/cssvariablemanager.ts","../src/domtree.test.ts","../src/domtree.ts","../src/filelifecycle.test.ts","../src/filetypesandupdates.test.ts","../src/htmlcomments.test.ts","../src/server.ts","../src/specificity.test.ts","../src/specificity.ts","../src/test.ts"],"version":"5.9.3"}

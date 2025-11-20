@@ -2,7 +2,7 @@
 	"compilerOptions": {
 		"module": "commonjs",
 		"target": "es2020",
-		"outDir": "out",
+		"outDir": "server/out",
 		"rootDir": ".",
 		"sourceMap": true,
 		"strict": true,
