@@ -1,7 +1,10 @@
 {
 	"name": "css-variable-lsp",
-	"version": "1.0.1",
+	"version": "1.0.2",
 	"description": "A CSS Language Server for CSS Variables",
+	"bin": {
+		"css-variable-lsp": "./server/out/server.js"
+	},
 	"scripts": {
 		"compile": "tsc -b",
 		"watch": "tsc -b -w",
