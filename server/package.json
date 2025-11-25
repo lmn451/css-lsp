@@ -2,6 +2,7 @@
 	"name": "css-variable-lsp-server",
 	"version": "1.0.0",
 	"description": "Language Server for CSS Variables",
+	"license": "GPL-3.0",
 	"engines": {
 		"node": "*"
 	},
