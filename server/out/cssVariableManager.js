@@ -10,6 +10,7 @@ const csstree = require("css-tree");
 const domTree_1 = require("./domTree");
 const node_html_parser_1 = require("node-html-parser");
 const colorService_1 = require("./colorService");
+const specificity_1 = require("./specificity");
 class CssVariableManager {
     constructor(logger) {
         this.variables = new Map();
@@ -403,8 +404,9 @@ class CssVariableManager {
     /**
      * Resolve a variable name to a Color if possible.
      * Handles recursive variable references: var(--a) -> var(--b) -> #fff
+     * Uses CSS cascade rules: !important > specificity > source order
      */
-    resolveVariableColor(name, seen = new Set()) {
+    resolveVariableColor(name, context, seen = new Set()) {
         if (seen.has(name)) {
             return null; // Cycle detected
         }
@@ -413,14 +415,30 @@ class CssVariableManager {
         if (variables.length === 0) {
             return null;
         }
-        // For simplicity, take the last defined value (or we could use cascade logic)
-        // Using the last one mimics "latest definition wins" in a simple way
-        const variable = variables[variables.length - 1];
+        // Apply CSS cascade rules to find the winning definition
+        // Sort by cascade rules: !important > specificity > source order
+        const sortedVars = [...variables].sort((a, b) => {
+            // !important always wins (unless both are !important)
+            if (a.important !== b.important) {
+                return a.important ? -1 : 1;
+            }
+            // After !important, check specificity
+            const specA = (0, specificity_1.calculateSpecificity)(a.selector);
+            const specB = (0, specificity_1.calculateSpecificity)(b.selector);
+            const specCompare = (0, specificity_1.compareSpecificity)(specA, specB);
+            if (specCompare !== 0) {
+                return -specCompare; // Negative for descending order
+            }
+            // Equal specificity - later in source wins
+            return b.sourcePosition - a.sourcePosition;
+        });
+        // Use the winning definition (first after sort)
+        const variable = sortedVars[0];
         let value = variable.value;
         // Check if it's a reference to another variable
         const match = value.match(/^var\((--[\w-]+)\)$/);
         if (match) {
-            return this.resolveVariableColor(match[1], seen);
+            return this.resolveVariableColor(match[1], context, seen);
         }
         return (0, colorService_1.parseColor)(value);
     }

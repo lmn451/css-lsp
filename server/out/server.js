@@ -521,15 +521,18 @@ connection.onColorPresentation((params) => {
     if (!document) {
         return [];
     }
-    const text = document.getText(range);
-    const newColorStr = (0, colorService_1.formatColor)(color);
-    // If we are editing a variable usage var(--foo), we probably shouldn't replace it with a hex code.
-    // Unless the user explicitly wants to inline it.
-    // But standard behavior for color picker is to replace the text.
-    // If it's a variable definition (e.g. #f00), we just replace it.
-    return [
-        node_1.ColorPresentation.create(newColorStr, node_1.TextEdit.replace(range, newColorStr))
-    ];
+    // Offer multiple format options for the color picker
+    const presentations = [];
+    // 1. Hex format (most common)
+    const hexStr = (0, colorService_1.formatColorAsHex)(color);
+    presentations.push(node_1.ColorPresentation.create(hexStr, node_1.TextEdit.replace(range, hexStr)));
+    // 2. RGB format
+    const rgbStr = (0, colorService_1.formatColorAsRgb)(color);
+    presentations.push(node_1.ColorPresentation.create(rgbStr, node_1.TextEdit.replace(range, rgbStr)));
+    // 3. HSL format
+    const hslStr = (0, colorService_1.formatColorAsHsl)(color);
+    presentations.push(node_1.ColorPresentation.create(hslStr, node_1.TextEdit.replace(range, hslStr)));
+    return presentations;
 });
 // Make the text document manager listen on the connection
 // for open, change and close text document events

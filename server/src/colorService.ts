@@ -43,6 +43,83 @@ export function formatColor(color: Color): string {
 	}
 }
 
+/**
+ * Format color as hex (with alpha if not fully opaque)
+ */
+export function formatColorAsHex(color: Color): string {
+	const r = Math.round(color.red * 255);
+	const g = Math.round(color.green * 255);
+	const b = Math.round(color.blue * 255);
+	const a = Math.round(color.alpha * 255);
+
+	if (a >= 255) {
+		return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+	} else {
+		return `#${toHex(r)}${toHex(g)}${toHex(b)}${toHex(a)}`;
+	}
+}
+
+/**
+ * Format color as rgb() or rgba()
+ */
+export function formatColorAsRgb(color: Color): string {
+	const r = Math.round(color.red * 255);
+	const g = Math.round(color.green * 255);
+	const b = Math.round(color.blue * 255);
+	const a = color.alpha;
+
+	if (a >= 1) {
+		return `rgb(${r}, ${g}, ${b})`;
+	} else {
+		return `rgba(${r}, ${g}, ${b}, ${Number(a.toFixed(2))})`;
+	}
+}
+
+/**
+ * Format color as hsl() or hsla()
+ */
+export function formatColorAsHsl(color: Color): string {
+	const { h, s, l } = rgbToHsl(color.red, color.green, color.blue);
+	const a = color.alpha;
+
+	const hDeg = Math.round(h * 360);
+	const sPercent = Math.round(s * 100);
+	const lPercent = Math.round(l * 100);
+
+	if (a >= 1) {
+		return `hsl(${hDeg}, ${sPercent}%, ${lPercent}%)`;
+	} else {
+		return `hsla(${hDeg}, ${sPercent}%, ${lPercent}%, ${Number(a.toFixed(2))})`;
+	}
+}
+
+/**
+ * Convert RGB to HSL
+ */
+function rgbToHsl(r: number, g: number, b: number): { h: number; s: number; l: number } {
+	const max = Math.max(r, g, b);
+	const min = Math.min(r, g, b);
+	const l = (max + min) / 2;
+
+	if (max === min) {
+		return { h: 0, s: 0, l };
+	}
+
+	const d = max - min;
+	const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+
+	let h: number;
+	if (max === r) {
+		h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+	} else if (max === g) {
+		h = ((b - r) / d + 2) / 6;
+	} else {
+		h = ((r - g) / d + 4) / 6;
+	}
+
+	return { h, s, l };
+}
+
 function toHex(n: number): string {
 	const hex = n.toString(16);
 	return hex.length === 1 ? '0' + hex : hex;

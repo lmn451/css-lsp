@@ -8,6 +8,7 @@ import { DOMTree, DOMNodeInfo } from './domTree';
 import { parse, HTMLElement as ParsedHTMLElement } from 'node-html-parser';
 import { Color } from 'vscode-languageserver/node';
 import { parseColor } from './colorService';
+import { calculateSpecificity, compareSpecificity } from './specificity';
 
 export interface CssVariable {
 	name: string;
@@ -460,8 +461,9 @@ export class CssVariableManager {
 	/**
 	 * Resolve a variable name to a Color if possible.
 	 * Handles recursive variable references: var(--a) -> var(--b) -> #fff
+	 * Uses CSS cascade rules: !important > specificity > source order
 	 */
-	public resolveVariableColor(name: string, seen = new Set<string>()): Color | null {
+	public resolveVariableColor(name: string, context?: string, seen = new Set<string>()): Color | null {
 		if (seen.has(name)) {
 			return null; // Cycle detected
 		}
@@ -472,15 +474,35 @@ export class CssVariableManager {
 			return null;
 		}
 
-		// For simplicity, take the last defined value (or we could use cascade logic)
-		// Using the last one mimics "latest definition wins" in a simple way
-		const variable = variables[variables.length - 1];
+		// Apply CSS cascade rules to find the winning definition
+		// Sort by cascade rules: !important > specificity > source order
+		const sortedVars = [...variables].sort((a, b) => {
+			// !important always wins (unless both are !important)
+			if (a.important !== b.important) {
+				return a.important ? -1 : 1;
+			}
+
+			// After !important, check specificity
+			const specA = calculateSpecificity(a.selector);
+			const specB = calculateSpecificity(b.selector);
+			const specCompare = compareSpecificity(specA, specB);
+
+			if (specCompare !== 0) {
+				return -specCompare; // Negative for descending order
+			}
+
+			// Equal specificity - later in source wins
+			return b.sourcePosition - a.sourcePosition;
+		});
+
+		// Use the winning definition (first after sort)
+		const variable = sortedVars[0];
 		let value = variable.value;
 
 		// Check if it's a reference to another variable
 		const match = value.match(/^var\((--[\w-]+)\)$/);
 		if (match) {
-			return this.resolveVariableColor(match[1], seen);
+			return this.resolveVariableColor(match[1], context, seen);
 		}
 
 		return parseColor(value);

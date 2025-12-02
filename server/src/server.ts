@@ -31,7 +31,7 @@ import { CssVariable } from './cssVariableManager';
 
 import { CssVariableManager } from './cssVariableManager';
 import { calculateSpecificity, compareSpecificity, formatSpecificity, matchesContext } from './specificity';
-import { parseColor, formatColor } from './colorService';
+import { parseColor, formatColor, formatColorAsHex, formatColorAsRgb, formatColorAsHsl } from './colorService';
 
 // Write startup log immediately
 try {
@@ -653,17 +653,22 @@ connection.onColorPresentation((params) => {
 		return [];
 	}
 
-	const text = document.getText(range);
-	const newColorStr = formatColor(color);
+	// Offer multiple format options for the color picker
+	const presentations: ColorPresentation[] = [];
 
-	// If we are editing a variable usage var(--foo), we probably shouldn't replace it with a hex code.
-	// Unless the user explicitly wants to inline it.
-	// But standard behavior for color picker is to replace the text.
+	// 1. Hex format (most common)
+	const hexStr = formatColorAsHex(color);
+	presentations.push(ColorPresentation.create(hexStr, TextEdit.replace(range, hexStr)));
 
-	// If it's a variable definition (e.g. #f00), we just replace it.
-	return [
-		ColorPresentation.create(newColorStr, TextEdit.replace(range, newColorStr))
-	];
+	// 2. RGB format
+	const rgbStr = formatColorAsRgb(color);
+	presentations.push(ColorPresentation.create(rgbStr, TextEdit.replace(range, rgbStr)));
+
+	// 3. HSL format
+	const hslStr = formatColorAsHsl(color);
+	presentations.push(ColorPresentation.create(hslStr, TextEdit.replace(range, hslStr)));
+
+	return presentations;
 });
 
 // Make the text document manager listen on the connection

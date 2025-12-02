@@ -2,6 +2,9 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseColor = parseColor;
 exports.formatColor = formatColor;
+exports.formatColorAsHex = formatColorAsHex;
+exports.formatColorAsRgb = formatColorAsRgb;
+exports.formatColorAsHsl = formatColorAsHsl;
 /**
  * Parse a CSS color string into an LSP Color object.
  * Supports hex, rgb, rgba, hsl, hsla, and named colors.
@@ -38,6 +41,76 @@ function formatColor(color) {
     else {
         return `rgba(${r}, ${g}, ${b}, ${Number(a.toFixed(2))})`;
     }
+}
+/**
+ * Format color as hex (with alpha if not fully opaque)
+ */
+function formatColorAsHex(color) {
+    const r = Math.round(color.red * 255);
+    const g = Math.round(color.green * 255);
+    const b = Math.round(color.blue * 255);
+    const a = Math.round(color.alpha * 255);
+    if (a >= 255) {
+        return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+    }
+    else {
+        return `#${toHex(r)}${toHex(g)}${toHex(b)}${toHex(a)}`;
+    }
+}
+/**
+ * Format color as rgb() or rgba()
+ */
+function formatColorAsRgb(color) {
+    const r = Math.round(color.red * 255);
+    const g = Math.round(color.green * 255);
+    const b = Math.round(color.blue * 255);
+    const a = color.alpha;
+    if (a >= 1) {
+        return `rgb(${r}, ${g}, ${b})`;
+    }
+    else {
+        return `rgba(${r}, ${g}, ${b}, ${Number(a.toFixed(2))})`;
+    }
+}
+/**
+ * Format color as hsl() or hsla()
+ */
+function formatColorAsHsl(color) {
+    const { h, s, l } = rgbToHsl(color.red, color.green, color.blue);
+    const a = color.alpha;
+    const hDeg = Math.round(h * 360);
+    const sPercent = Math.round(s * 100);
+    const lPercent = Math.round(l * 100);
+    if (a >= 1) {
+        return `hsl(${hDeg}, ${sPercent}%, ${lPercent}%)`;
+    }
+    else {
+        return `hsla(${hDeg}, ${sPercent}%, ${lPercent}%, ${Number(a.toFixed(2))})`;
+    }
+}
+/**
+ * Convert RGB to HSL
+ */
+function rgbToHsl(r, g, b) {
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    if (max === min) {
+        return { h: 0, s: 0, l };
+    }
+    const d = max - min;
+    const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    let h;
+    if (max === r) {
+        h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+    }
+    else if (max === g) {
+        h = ((b - r) / d + 2) / 6;
+    }
+    else {
+        h = ((r - g) / d + 4) / 6;
+    }
+    return { h, s, l };
 }
 function toHex(n) {
     const hex = n.toString(16);
