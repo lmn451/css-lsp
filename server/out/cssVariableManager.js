@@ -9,6 +9,7 @@ const fs = require("fs");
 const csstree = require("css-tree");
 const domTree_1 = require("./domTree");
 const node_html_parser_1 = require("node-html-parser");
+const colorService_1 = require("./colorService");
 class CssVariableManager {
     constructor(logger) {
         this.variables = new Map();
@@ -176,11 +177,26 @@ class CssVariableManager {
                         if (node.loc) {
                             const startPos = document.positionAt(offset + node.loc.start.offset);
                             const endPos = document.positionAt(offset + node.loc.end.offset);
+                            // Capture valueRange from node.value location
+                            let valueRange;
+                            if (node.value && node.value.loc) {
+                                // Get the raw text from the value node
+                                const valueStartOffset = offset + node.value.loc.start.offset;
+                                const valueEndOffset = offset + node.value.loc.end.offset;
+                                const rawValueText = text.substring(valueStartOffset, valueEndOffset);
+                                // Trim leading/trailing whitespace to get the actual value position
+                                const leadingWhitespace = rawValueText.length - rawValueText.trimStart().length;
+                                const trailingWhitespace = rawValueText.length - rawValueText.trimEnd().length;
+                                const valueStartPos = document.positionAt(valueStartOffset + leadingWhitespace);
+                                const valueEndPos = document.positionAt(valueEndOffset - trailingWhitespace);
+                                valueRange = node_1.Range.create(valueStartPos, valueEndPos);
+                            }
                             const variable = {
                                 name,
                                 value,
                                 uri,
                                 range: node_1.Range.create(startPos, endPos),
+                                valueRange,
                                 selector,
                                 important,
                                 sourcePosition: offset + node.loc.start.offset
@@ -308,7 +324,6 @@ class CssVariableManager {
                 return;
             }
             this.parseContent(content, uri, languageId);
-            this.parseContent(content, uri, languageId);
             this.logger.log(`[css-lsp] Updated file ${uri} from disk.`);
         }
         catch (error) {
@@ -384,6 +399,30 @@ class CssVariableManager {
      */
     getDOMTree(uri) {
         return this.domTrees.get(uri);
+    }
+    /**
+     * Resolve a variable name to a Color if possible.
+     * Handles recursive variable references: var(--a) -> var(--b) -> #fff
+     */
+    resolveVariableColor(name, seen = new Set()) {
+        if (seen.has(name)) {
+            return null; // Cycle detected
+        }
+        seen.add(name);
+        const variables = this.getVariables(name);
+        if (variables.length === 0) {
+            return null;
+        }
+        // For simplicity, take the last defined value (or we could use cascade logic)
+        // Using the last one mimics "latest definition wins" in a simple way
+        const variable = variables[variables.length - 1];
+        let value = variable.value;
+        // Check if it's a reference to another variable
+        const match = value.match(/^var\((--[\w-]+)\)$/);
+        if (match) {
+            return this.resolveVariableColor(match[1], seen);
+        }
+        return (0, colorService_1.parseColor)(value);
     }
 }
 exports.CssVariableManager = CssVariableManager;

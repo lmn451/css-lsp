@@ -10,7 +10,7 @@
 		"compile": "tsc -b",
 		"watch": "tsc -b -w",
 		"test": "ts-node src/test.ts",
-		"test:all": "ts-node src/test.ts && ts-node src/cascadeAndInline.test.ts && ts-node src/domTree.test.ts && ts-node src/fileTypesAndUpdates.test.ts && ts-node src/htmlComments.test.ts && ts-node src/fileLifecycle.test.ts"
+		"test:all": "ts-node src/test.ts && ts-node src/cascadeAndInline.test.ts && ts-node src/domTree.test.ts && ts-node src/fileTypesAndUpdates.test.ts && ts-node src/htmlComments.test.ts && ts-node src/fileLifecycle.test.ts && ts-node src/colorProvider.test.ts"
 	},
 	"dependencies": {
 		"glob": "^12.0.0",

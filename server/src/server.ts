@@ -19,7 +19,9 @@ import {
 	WorkspaceSymbol,
 	WorkspaceEdit,
 	TextEdit,
-	FileChangeType
+	FileChangeType,
+	ColorInformation,
+	ColorPresentation
 } from 'vscode-languageserver/node';
 import * as fs from 'fs'
 import {
@@ -29,6 +31,7 @@ import { CssVariable } from './cssVariableManager';
 
 import { CssVariableManager } from './cssVariableManager';
 import { calculateSpecificity, compareSpecificity, formatSpecificity, matchesContext } from './specificity';
+import { parseColor, formatColor } from './colorService';
 
 // Write startup log immediately
 try {
@@ -99,7 +102,8 @@ connection.onInitialize((params: InitializeParams) => {
 			referencesProvider: true,
 			renameProvider: true,
 			documentSymbolProvider: true,
-			workspaceSymbolProvider: true
+			workspaceSymbolProvider: true,
+			colorProvider: true
 		}
 	};
 	if (hasWorkspaceFolderCapability) {
@@ -572,6 +576,94 @@ connection.onWorkspaceSymbol((params) => {
 		v.uri,
 		v.range
 	));
+});
+
+// Color Provider: Document Colors
+connection.onDocumentColor((params) => {
+	const document = documents.get(params.textDocument.uri);
+	if (!document) {
+		return [];
+	}
+
+	const colors: ColorInformation[] = [];
+	const text = document.getText();
+
+	// 1. Check variable definitions: --my-color: #f00;
+	const definitions = cssVariableManager.getDocumentDefinitions(document.uri);
+	for (const def of definitions) {
+		const color = parseColor(def.value);
+		if (color) {
+			// Use the stored valueRange if available (accurate from csstree parsing)
+			if (def.valueRange) {
+				colors.push({
+					range: def.valueRange,
+					color: color
+				});
+			} else {
+				// Fallback: find the value within the declaration text
+				// This handles cases where valueRange wasn't captured (shouldn't happen normally)
+				const defText = text.substring(document.offsetAt(def.range.start), document.offsetAt(def.range.end));
+				const colonIndex = defText.indexOf(':');
+				if (colonIndex !== -1) {
+					const afterColon = defText.substring(colonIndex + 1);
+					const valueIndex = afterColon.indexOf(def.value.trim());
+					
+					if (valueIndex !== -1) {
+						const absoluteValueStart = document.offsetAt(def.range.start) + colonIndex + 1 + valueIndex;
+						const start = document.positionAt(absoluteValueStart);
+						const end = document.positionAt(absoluteValueStart + def.value.trim().length);
+						colors.push({
+							range: { start, end },
+							color: color
+						});
+					}
+				}
+			}
+		}
+	}
+
+	// 2. Check variable usages: var(--my-color)
+	// We want to show the color of the variable being used.
+	// But we can't easily edit it (color picker on usage).
+	// VS Code allows read-only color information.
+	const regex = /var\((--[\w-]+)\)/g;
+	let match;
+	while ((match = regex.exec(text)) !== null) {
+		const varName = match[1];
+		const color = cssVariableManager.resolveVariableColor(varName);
+		if (color) {
+			const start = document.positionAt(match.index);
+			const end = document.positionAt(match.index + match[0].length);
+			colors.push({
+				range: { start, end },
+				color: color
+			});
+		}
+	}
+
+	return colors;
+});
+
+// Color Provider: Color Presentation
+connection.onColorPresentation((params) => {
+	const color = params.color;
+	const range = params.range;
+	const document = documents.get(params.textDocument.uri);
+	if (!document) {
+		return [];
+	}
+
+	const text = document.getText(range);
+	const newColorStr = formatColor(color);
+
+	// If we are editing a variable usage var(--foo), we probably shouldn't replace it with a hex code.
+	// Unless the user explicitly wants to inline it.
+	// But standard behavior for color picker is to replace the text.
+
+	// If it's a variable definition (e.g. #f00), we just replace it.
+	return [
+		ColorPresentation.create(newColorStr, TextEdit.replace(range, newColorStr))
+	];
 });
 
 // Make the text document manager listen on the connection
