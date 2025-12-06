@@ -56,8 +56,9 @@ let hasDiagnosticRelatedInformationCapability = false;
 connection.onInitialize((params: InitializeParams) => {
 	logDebug('initialize', {
 		rootUri: params.rootUri,
-		rootPath: (params as any).rootPath,
-		workspaceFolders: (params as any).workspaceFolders,
+		// rootPath is deprecated and optional in InitializeParams
+		rootPath: params.rootPath,
+		workspaceFolders: params.workspaceFolders,
 		capabilities: params.capabilities,
 	});
 
@@ -119,9 +120,9 @@ connection.onInitialized(async () => {
 	const workspaceFolders = await connection.workspace.getWorkspaceFolders();
 	if (workspaceFolders) {
 		connection.console.log('Scanning workspace for CSS variables...');
-		
+
 		const folderUris = workspaceFolders.map(f => f.uri);
-		
+
 		// Scan with progress callback that logs to console
 		let lastLoggedPercentage = 0;
 		await cssVariableManager.scanWorkspace(folderUris, (current, total) => {
@@ -201,22 +202,22 @@ const validationTimeouts: Map<string, NodeJS.Timeout> = new Map();
 documents.onDidChangeContent(change => {
 	// Parse immediately (needed for completion/hover)
 	cssVariableManager.parseDocument(change.document);
-	
+
 	// Debounce validation to avoid excessive diagnostic updates while typing
 	const uri = change.document.uri;
-	
+
 	// Clear existing timeout for this document
 	const existingTimeout = validationTimeouts.get(uri);
 	if (existingTimeout) {
 		clearTimeout(existingTimeout);
 	}
-	
+
 	// Schedule validation after 300ms of inactivity
 	const timeout = setTimeout(() => {
 		validateTextDocument(change.document);
 		validationTimeouts.delete(uri);
 	}, 300);
-	
+
 	validationTimeouts.set(uri, timeout);
 });
 
@@ -551,8 +552,8 @@ connection.onRenameRequest((params) => {
 			// For usages in var(), replace just the variable name part
 			const edit: TextEdit = {
 				range: ref.range,
-				newText: 'uri' in ref && 'value' in ref
-					? `${params.newName}: ${(ref as any).value};`  // Definition
+				newText: 'value' in ref
+					? `${params.newName}: ${ref.value};`  // Definition
 					: `var(${params.newName})`  // Usage
 			};
 
@@ -628,7 +629,7 @@ connection.onDocumentColor((params) => {
 				if (colonIndex !== -1) {
 					const afterColon = defText.substring(colonIndex + 1);
 					const valueIndex = afterColon.indexOf(def.value.trim());
-					
+
 					if (valueIndex !== -1) {
 						const absoluteValueStart = document.offsetAt(def.range.start) + colonIndex + 1 + valueIndex;
 						const start = document.positionAt(absoluteValueStart);

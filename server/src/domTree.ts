@@ -59,7 +59,7 @@ export class DOMTree {
 		// Manually extract classes from DOMTokenList using item()
 		const classes: string[] = [];
 		for (let i = 0; i < node.classList.length; i++) {
-			const className = (node.classList as any)[i]; // Type assertion needed due to library types
+			const className = node.classList.value[i]; // Type assertion needed due to library types
 			if (className) classes.push(className);
 		}
 

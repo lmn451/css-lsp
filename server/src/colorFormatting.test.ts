@@ -1,7 +1,9 @@
+
 import * as assert from 'assert';
 import { formatColorAsHex, formatColorAsRgb, formatColorAsHsl } from './colorService';
 import { CssVariableManager } from './cssVariableManager';
 import { TextDocument } from 'vscode-languageserver-textdocument';
+import { Color, Range } from 'vscode-languageserver/node';
 
 console.log('Running Color Formatting tests...');
 
@@ -44,7 +46,7 @@ console.log('Running Color Formatting tests...');
 	const complex = manager.getVariables('--complex')[0];
 
 	// Helper to get text from range
-	const getText = (range: any) => {
+	const getText = (range: Range) => {
 		const start = document.offsetAt(range.start);
 		const end = document.offsetAt(range.end);
 		return css.substring(start, end);

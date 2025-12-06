@@ -4,6 +4,7 @@
  * Calculates and compares CSS selector specificity according to the CSS specification.
  * https://www.w3.org/TR/selectors-3/#specificity
  */
+import { DOMTree, DOMNodeInfo } from './domTree';
 
 export interface Specificity {
 	ids: number;       // ID selectors (#id)
@@ -65,7 +66,8 @@ export function calculateSpecificity(selector: string): Specificity {
 	selector = selector.replace(classRegex, '');
 
 	// Count attribute selectors ([attr])
-	const attrRegex = /\[[^\]]+\]/g;
+	// Handle quoted strings inside attributes to avoid stopping at the first ']'
+	const attrRegex = /\[(?:[^\]"']|"[^"]*"|'[^']*')*\]/g;
 	const attrs = selector.match(attrRegex) || [];
 	specificity.classes += attrs.length;
 	selector = selector.replace(attrRegex, '');
@@ -127,7 +129,7 @@ export function formatSpecificity(spec: Specificity): string {
  * - matchesContext(".button", ".button") → true (exact match)
  * - matchesContext("#main", ".button") → false (different selectors)
  */
-export function matchesContext(definitionSelector: string, usageContext: string, domTree?: any, domNode?: any): boolean {
+export function matchesContext(definitionSelector: string, usageContext: string, domTree?: DOMTree, domNode?: DOMNodeInfo): boolean {
 	// If we have a DOM tree and node, use proper selector matching
 	if (domTree &&  domNode) {
 		try {

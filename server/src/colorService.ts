@@ -130,6 +130,9 @@ function parseHex(hex: string): Color | null {
 	if (hex.length === 3) {
 		hex = hex.split('').map(c => c + c).join('');
 	}
+	if (hex.length === 4) {
+		hex = hex.split('').map(c => c + c).join('');
+	}
 	if (hex.length !== 6 && hex.length !== 8) {
 		return null;
 	}
