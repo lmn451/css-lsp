@@ -41,31 +41,32 @@ export class CssVariableManager {
 	private logger: Logger;
 
 	constructor(logger?: Logger) {
-		const LOG_FILE = '/tmp/css.log';
 		this.logger = logger || {
 			log: (message: string) => {
-				console.log(message);
-				try {
-					fs.appendFileSync(LOG_FILE, `[INFO] ${new Date().toISOString()} ${message}\n`);
-				} catch (e) {
-					// Ignore file write errors
+				// Only log to console in debug mode
+				if (process.env.CSS_LSP_DEBUG) {
+					console.log(message);
 				}
 			},
 			error: (message: string) => {
+				// Always log errors
 				console.error(message);
-				try {
-					fs.appendFileSync(LOG_FILE, `[ERROR] ${new Date().toISOString()} ${message}\n`);
-				} catch (e) {
-					// Ignore file write errors
-				}
 			}
 		};
 	}
 
 	/**
 	 * Scan all CSS and HTML files in the workspace
+	 * @param workspaceFolders Array of workspace folder URIs
+	 * @param onProgress Optional callback for progress updates (current, total)
 	 */
-	public async scanWorkspace(workspaceFolders: string[]): Promise<void> {
+	public async scanWorkspace(
+		workspaceFolders: string[],
+		onProgress?: (current: number, total: number) => void
+	): Promise<void> {
+		// First, collect all files from all folders
+		const allFiles: string[] = [];
+
 		for (const folder of workspaceFolders) {
 			const folderUri = URI.parse(folder);
 			const folderPath = folderUri.fsPath;
@@ -78,32 +79,43 @@ export class CssVariableManager {
 			});
 
 			this.logger.log(`[css-lsp] Scanned ${folder}: found ${files.length} files`);
-
-			// Parse each file
-			for (const filePath of files) {
-				try {
-					const content = fs.readFileSync(filePath, 'utf-8');
-					const fileUri = URI.file(filePath).toString();
-
-					let languageId = 'css';
-					if (filePath.endsWith('.html')) {
-						languageId = 'html';
-					} else if (filePath.endsWith('.scss')) {
-						languageId = 'scss';
-					} else if (filePath.endsWith('.sass')) {
-						languageId = 'sass';
-					} else if (filePath.endsWith('.less')) {
-						languageId = 'less';
-					}
-
-					this.parseContent(content, fileUri, languageId);
-				} catch (error) {
-					this.logger.error(`[css-lsp] Error scanning file ${filePath}: ${error}`);
-				}
-			}
-			this.logger.log(`[css-lsp] Workspace scan for ${folder} complete.`);
-
+			allFiles.push(...files);
 		}
+
+		const totalFiles = allFiles.length;
+		let processedFiles = 0;
+
+		// Parse each file with progress reporting
+		for (const filePath of allFiles) {
+			try {
+				const content = fs.readFileSync(filePath, 'utf-8');
+				const fileUri = URI.file(filePath).toString();
+
+				let languageId = 'css';
+				if (filePath.endsWith('.html')) {
+					languageId = 'html';
+				} else if (filePath.endsWith('.scss')) {
+					languageId = 'scss';
+				} else if (filePath.endsWith('.sass')) {
+					languageId = 'sass';
+				} else if (filePath.endsWith('.less')) {
+					languageId = 'less';
+				}
+
+				this.parseContent(content, fileUri, languageId);
+			} catch (error) {
+				this.logger.error(`[css-lsp] Error scanning file ${filePath}: ${error}`);
+			}
+
+			processedFiles++;
+
+			// Report progress every 10 files or at the end
+			if (onProgress && (processedFiles % 10 === 0 || processedFiles === totalFiles)) {
+				onProgress(processedFiles, totalFiles);
+			}
+		}
+
+		this.logger.log(`[css-lsp] Workspace scan complete. Processed ${totalFiles} files.`);
 	}
 
 	public parseDocument(document: TextDocument): void {
@@ -186,7 +198,9 @@ export class CssVariableManager {
 		try {
 			const ast = csstree.parse(text, {
 				positions: true,
-				onParseError: () => {} // Ignore errors to be tolerant
+				onParseError: (error) => {
+					this.logger.log(`[css-lsp] CSS Parse Error in ${uri}: ${error.message}`);
+				}
 			});
 
 			const selectorStack: string[] = [];
@@ -221,11 +235,11 @@ export class CssVariableManager {
 								const valueStartOffset = offset + node.value.loc.start.offset;
 								const valueEndOffset = offset + node.value.loc.end.offset;
 								const rawValueText = text.substring(valueStartOffset, valueEndOffset);
-								
+
 								// Trim leading/trailing whitespace to get the actual value position
 								const leadingWhitespace = rawValueText.length - rawValueText.trimStart().length;
 								const trailingWhitespace = rawValueText.length - rawValueText.trimEnd().length;
-								
+
 								const valueStartPos = document.positionAt(valueStartOffset + leadingWhitespace);
 								const valueEndPos = document.positionAt(valueEndOffset - trailingWhitespace);
 								valueRange = Range.create(valueStartPos, valueEndPos);
@@ -299,7 +313,9 @@ export class CssVariableManager {
 			const ast = csstree.parse(text, {
 				context: 'declarationList',
 				positions: true,
-				onParseError: () => {}
+				onParseError: (error) => {
+					this.logger.log(`[css-lsp] Inline Style Parse Error in ${uri}: ${error.message}`);
+				}
 			});
 
 			csstree.walk(ast, {

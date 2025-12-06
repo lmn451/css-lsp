@@ -4,10 +4,18 @@ This document outlines the current limitations of the CSS Variable Language Serv
 
 ## ✅ What We DO Handle
 
+### Core CSS Cascade Features
 - **Selector tracking**: Each variable definition tracks its CSS selector (`:root`, `div`, `.class`, etc.)
 - **CSS Specificity**: Full specificity calculation for IDs, classes, pseudo-classes, elements
 - **Usage context detection**: Tracks which selector a `var(--name)` usage appears in
 - **Context-aware hover**: Shows all definitions sorted by specificity with indicator of which applies
+
+### Advanced CSS Features ✨
+- **Source order tracking**: When two selectors have equal specificity, later definitions win
+- **!important support**: `--color: red !important` is tracked and prioritized correctly in cascade
+- **Inline style parsing**: `style="--color: red"` attributes are parsed for variable definitions
+- **Cross-file support**: Works across CSS, SCSS, SASS, LESS, and HTML `<style>` blocks
+- **Color picker**: Provides color preview and picker for CSS color values in variables
 
 ## ❌ What We DON'T Handle
 
@@ -70,15 +78,10 @@ div .inner { --color: blue; }
 - **Container queries**: Variables in `@container` are not context-aware
 - **Cascade layers**: `@layer` is not considered
 
-- **Source order**: When two selectors have equal specificity, we don't track source order
-
-- **!important**: Not tracked or considered
-
 - **Inheritance**: Can't determine if a value is inherited from a parent
 
 ### HTML/DOM Limitations
 
-- **Inline styles**: `style=""` attributes are not parsed for variable usages
 - **Computed styles**: No runtime evaluation
   - Can't compute `rgb()`, `hsl()`, `calc()` expressions
   - Can't resolve actual computed values
@@ -92,11 +95,17 @@ div .inner { --color: blue; }
 - **Malformed CSS**: Parser may fail on invalid syntax
 - **Comments in selectors**: May incorrectly parse comments as part of selectors
 
-### Performance Limitations
+### Performance Considerations
 
-- **Large workspaces**: Scanning thousands of CSS files may be slow
-- **No incremental parsing**: File changes trigger full re-parse
-- **No caching**: Workspace scan results not persisted between sessions
+- **Large workspaces**: Initial scan of thousands of CSS files may take a few seconds
+  - Progress is shown during initial workspace indexing
+  - Subsequent file changes are fast (incremental updates only)
+- **Full file re-parse**: Individual file changes trigger complete re-parse of that file
+  - Acceptable for typical CSS file sizes (< 10KB)
+  - May be noticeable for very large CSS files (> 100KB)
+- **In-memory caching**: Parsed results cached in memory during session
+  - Fast lookups after initial parse
+  - Cache cleared on server restart
 
 ### Known Issues
 

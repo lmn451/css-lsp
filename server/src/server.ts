@@ -33,27 +33,15 @@ import { CssVariableManager } from './cssVariableManager';
 import { calculateSpecificity, compareSpecificity, formatSpecificity, matchesContext } from './specificity';
 import { parseColor, formatColor, formatColorAsHex, formatColorAsRgb, formatColorAsHsl } from './colorService';
 
-// Write startup log immediately
-try {
-	const startupMsg = `[STARTUP] ${new Date().toISOString()} CSS LSP Server starting\n`;
-	fs.appendFileSync('/tmp/css.log', startupMsg);
-} catch (e) {
-	// Ignore
-}
-
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
 const connection = createConnection(ProposedFeatures.all);
-	fs.writeFile('/tmp/css2.log', 'asdf', {encoding:'utf-8'}, () => {})
 
 function logDebug(label: string, payload: unknown) {
-	// eslint-disable-next-line no-console
-	const message = `[css-lsp] ${label} ${JSON.stringify(payload)}`;
-	console.error(message);
-	try {
-		fs.appendFileSync('/tmp/css.log', `[DEBUG] ${new Date().toISOString()} ${message}\n`);
-	} catch (e) {
-		// Ignore file write errors
+	// Only log in debug mode (set CSS_LSP_DEBUG=1 environment variable)
+	if (process.env.CSS_LSP_DEBUG) {
+		const message = `[css-lsp] ${label} ${JSON.stringify(payload)}`;
+		connection.console.log(message);
 	}
 }
 
@@ -127,13 +115,26 @@ connection.onInitialized(async () => {
 		});
 	}
 
-	// Scan workspace for CSS variables on initialization
+	// Scan workspace for CSS variables on initialization with progress reporting
 	const workspaceFolders = await connection.workspace.getWorkspaceFolders();
 	if (workspaceFolders) {
 		connection.console.log('Scanning workspace for CSS variables...');
+		
 		const folderUris = workspaceFolders.map(f => f.uri);
-		await cssVariableManager.scanWorkspace(folderUris);
-		connection.console.log(`Workspace scan complete. Found ${cssVariableManager.getAllVariables().length} variables.`);
+		
+		// Scan with progress callback that logs to console
+		let lastLoggedPercentage = 0;
+		await cssVariableManager.scanWorkspace(folderUris, (current, total) => {
+			const percentage = Math.round((current / total) * 100);
+			// Log progress every 20% to avoid spam
+			if (percentage - lastLoggedPercentage >= 20 || current === total) {
+				connection.console.log(`Scanning CSS files: ${current}/${total} (${percentage}%)`);
+				lastLoggedPercentage = percentage;
+			}
+		});
+
+		const totalVars = cssVariableManager.getAllVariables().length;
+		connection.console.log(`Workspace scan complete. Found ${totalVars} CSS variables.`);
 
 		// Validate all open documents after workspace scan
 		documents.all().forEach(validateTextDocument);
@@ -190,13 +191,33 @@ documents.onDidClose(async e => {
 	await cssVariableManager.updateFile(e.document.uri);
 });
 
+// Debounce map for validation (per document URI)
+const validationTimeouts: Map<string, NodeJS.Timeout> = new Map();
+
 // The content of a text document has changed. This event is emitted
 // when the text document first opened or when its content has changed.
 // Note: We don't need a separate onDidOpen handler because onDidChangeContent
 // already fires when a document is first opened, avoiding double-parsing.
 documents.onDidChangeContent(change => {
+	// Parse immediately (needed for completion/hover)
 	cssVariableManager.parseDocument(change.document);
-	validateTextDocument(change.document);
+	
+	// Debounce validation to avoid excessive diagnostic updates while typing
+	const uri = change.document.uri;
+	
+	// Clear existing timeout for this document
+	const existingTimeout = validationTimeouts.get(uri);
+	if (existingTimeout) {
+		clearTimeout(existingTimeout);
+	}
+	
+	// Schedule validation after 300ms of inactivity
+	const timeout = setTimeout(() => {
+		validateTextDocument(change.document);
+		validationTimeouts.delete(uri);
+	}, 300);
+	
+	validationTimeouts.set(uri, timeout);
 });
 
 async function validateTextDocument(textDocument: TextDocument): Promise<void> {

@@ -16,32 +16,27 @@ class CssVariableManager {
         this.variables = new Map();
         this.usages = new Map();
         this.domTrees = new Map(); // URI -> DOM tree
-        const LOG_FILE = '/tmp/css.log';
         this.logger = logger || {
             log: (message) => {
-                console.log(message);
-                try {
-                    fs.appendFileSync(LOG_FILE, `[INFO] ${new Date().toISOString()} ${message}\n`);
-                }
-                catch (e) {
-                    // Ignore file write errors
+                // Only log to console in debug mode
+                if (process.env.CSS_LSP_DEBUG) {
+                    console.log(message);
                 }
             },
             error: (message) => {
+                // Always log errors
                 console.error(message);
-                try {
-                    fs.appendFileSync(LOG_FILE, `[ERROR] ${new Date().toISOString()} ${message}\n`);
-                }
-                catch (e) {
-                    // Ignore file write errors
-                }
             }
         };
     }
     /**
      * Scan all CSS and HTML files in the workspace
+     * @param workspaceFolders Array of workspace folder URIs
+     * @param onProgress Optional callback for progress updates (current, total)
      */
-    async scanWorkspace(workspaceFolders) {
+    async scanWorkspace(workspaceFolders, onProgress) {
+        // First, collect all files from all folders
+        const allFiles = [];
         for (const folder of workspaceFolders) {
             const folderUri = vscode_uri_1.URI.parse(folder);
             const folderPath = folderUri.fsPath;
@@ -52,32 +47,40 @@ class CssVariableManager {
                 absolute: true
             });
             this.logger.log(`[css-lsp] Scanned ${folder}: found ${files.length} files`);
-            // Parse each file
-            for (const filePath of files) {
-                try {
-                    const content = fs.readFileSync(filePath, 'utf-8');
-                    const fileUri = vscode_uri_1.URI.file(filePath).toString();
-                    let languageId = 'css';
-                    if (filePath.endsWith('.html')) {
-                        languageId = 'html';
-                    }
-                    else if (filePath.endsWith('.scss')) {
-                        languageId = 'scss';
-                    }
-                    else if (filePath.endsWith('.sass')) {
-                        languageId = 'sass';
-                    }
-                    else if (filePath.endsWith('.less')) {
-                        languageId = 'less';
-                    }
-                    this.parseContent(content, fileUri, languageId);
-                }
-                catch (error) {
-                    this.logger.error(`[css-lsp] Error scanning file ${filePath}: ${error}`);
-                }
-            }
-            this.logger.log(`[css-lsp] Workspace scan for ${folder} complete.`);
+            allFiles.push(...files);
         }
+        const totalFiles = allFiles.length;
+        let processedFiles = 0;
+        // Parse each file with progress reporting
+        for (const filePath of allFiles) {
+            try {
+                const content = fs.readFileSync(filePath, 'utf-8');
+                const fileUri = vscode_uri_1.URI.file(filePath).toString();
+                let languageId = 'css';
+                if (filePath.endsWith('.html')) {
+                    languageId = 'html';
+                }
+                else if (filePath.endsWith('.scss')) {
+                    languageId = 'scss';
+                }
+                else if (filePath.endsWith('.sass')) {
+                    languageId = 'sass';
+                }
+                else if (filePath.endsWith('.less')) {
+                    languageId = 'less';
+                }
+                this.parseContent(content, fileUri, languageId);
+            }
+            catch (error) {
+                this.logger.error(`[css-lsp] Error scanning file ${filePath}: ${error}`);
+            }
+            processedFiles++;
+            // Report progress every 10 files or at the end
+            if (onProgress && (processedFiles % 10 === 0 || processedFiles === totalFiles)) {
+                onProgress(processedFiles, totalFiles);
+            }
+        }
+        this.logger.log(`[css-lsp] Workspace scan complete. Processed ${totalFiles} files.`);
     }
     parseDocument(document) {
         this.parseContent(document.getText(), document.uri, document.languageId);
@@ -154,7 +157,9 @@ class CssVariableManager {
         try {
             const ast = csstree.parse(text, {
                 positions: true,
-                onParseError: () => { } // Ignore errors to be tolerant
+                onParseError: (error) => {
+                    this.logger.log(`[css-lsp] CSS Parse Error in ${uri}: ${error.message}`);
+                }
             });
             const selectorStack = [];
             csstree.walk(ast, {
@@ -255,7 +260,9 @@ class CssVariableManager {
             const ast = csstree.parse(text, {
                 context: 'declarationList',
                 positions: true,
-                onParseError: () => { }
+                onParseError: (error) => {
+                    this.logger.log(`[css-lsp] Inline Style Parse Error in ${uri}: ${error.message}`);
+                }
             });
             csstree.walk(ast, {
                 enter: (node) => {
