@@ -25,6 +25,7 @@ let hasDiagnosticRelatedInformationCapability = false;
 connection.onInitialize((params) => {
     logDebug('initialize', {
         rootUri: params.rootUri,
+        // rootPath is deprecated and optional in InitializeParams
         rootPath: params.rootPath,
         workspaceFolders: params.workspaceFolders,
         capabilities: params.capabilities,
@@ -435,7 +436,7 @@ connection.onRenameRequest((params) => {
             // For usages in var(), replace just the variable name part
             const edit = {
                 range: ref.range,
-                newText: 'uri' in ref && 'value' in ref
+                newText: 'value' in ref
                     ? `${params.newName}: ${ref.value};` // Definition
                     : `var(${params.newName})` // Usage
             };

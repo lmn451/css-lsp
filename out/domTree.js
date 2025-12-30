@@ -45,7 +45,7 @@ class DOMTree {
         // Manually extract classes from DOMTokenList using item()
         const classes = [];
         for (let i = 0; i < node.classList.length; i++) {
-            const className = node.classList[i]; // Type assertion needed due to library types
+            const className = node.classList.value[i]; // Type assertion needed due to library types
             if (className)
                 classes.push(className);
         }

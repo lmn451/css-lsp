@@ -5,19 +5,14 @@
 .beads
 history/
 
-# Ignore node_modules to prevent shipping dependencies
-server/node_modules
-node_modules
-
 # Ignore TypeScript source files (we ship compiled JS)
-server/src
-server/tsconfig.json
-server/tsconfig.tsbuildinfo
+src/
+tsconfig.json
+*.tsbuildinfo
 
 # Ignore test files
 *.test.ts
 *.test.js
 *.test.js.map
 
-# Keep only the compiled output
-# The package.json postinstall will handle server dependencies
+# Keep only the compiled output in out/
