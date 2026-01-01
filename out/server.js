@@ -212,6 +212,129 @@ connection.onDidChangeWatchedFiles(async (change) => {
     documents.all().forEach(validateTextDocument);
 });
 /**
+ * Extract the CSS property name from the context before the cursor.
+ * Returns the property name if found, or null otherwise.
+ */
+function getPropertyNameFromContext(beforeCursor) {
+    // Look for the pattern: property-name: ... cursor
+    // Scan backwards to find the colon
+    let inBraces = 0;
+    let inParens = 0;
+    let lastColonPos = -1;
+    let lastSemicolonPos = -1;
+    let lastBracePos = -1;
+    for (let i = beforeCursor.length - 1; i >= 0; i--) {
+        const char = beforeCursor[i];
+        if (char === ')')
+            inParens++;
+        else if (char === '(') {
+            inParens--;
+            if (inParens < 0)
+                break;
+        }
+        else if (char === '}')
+            inBraces++;
+        else if (char === '{') {
+            inBraces--;
+            if (inBraces < 0) {
+                lastBracePos = i;
+                break;
+            }
+        }
+        else if (char === ':' && inParens === 0 && inBraces === 0 && lastColonPos === -1) {
+            lastColonPos = i;
+        }
+        else if (char === ';' && inParens === 0 && inBraces === 0 && lastSemicolonPos === -1) {
+            lastSemicolonPos = i;
+        }
+    }
+    // If we found a colon after the last semicolon or opening brace, extract the property name
+    if (lastColonPos > lastSemicolonPos && lastColonPos > lastBracePos) {
+        const beforeColon = beforeCursor.slice(0, lastColonPos).trim();
+        const propertyMatch = beforeColon.match(/([\w-]+)$/);
+        if (propertyMatch) {
+            return propertyMatch[1].toLowerCase();
+        }
+    }
+    return null;
+}
+/**
+ * Check if a CSS variable is relevant for a given property based on naming conventions.
+ * Returns a score: higher is more relevant, 0 means not relevant, -1 means keep (no filtering).
+ */
+function scoreVariableRelevance(varName, propertyName) {
+    if (!propertyName) {
+        return -1; // No property context, keep all variables
+    }
+    const lowerVarName = varName.toLowerCase();
+    // Color-related properties
+    const colorProperties = ['color', 'background-color', 'background', 'border-color', 'outline-color', 'text-decoration-color', 'fill', 'stroke'];
+    if (colorProperties.includes(propertyName)) {
+        // High relevance: variable name contains color-related keywords
+        if (lowerVarName.includes('color') || lowerVarName.includes('bg') || lowerVarName.includes('background') ||
+            lowerVarName.includes('primary') || lowerVarName.includes('secondary') || lowerVarName.includes('accent') ||
+            lowerVarName.includes('text') || lowerVarName.includes('border') || lowerVarName.includes('link')) {
+            return 10;
+        }
+        // Low relevance for non-color variables
+        if (lowerVarName.includes('spacing') || lowerVarName.includes('margin') || lowerVarName.includes('padding') ||
+            lowerVarName.includes('size') || lowerVarName.includes('width') || lowerVarName.includes('height') ||
+            lowerVarName.includes('font') || lowerVarName.includes('weight') || lowerVarName.includes('radius')) {
+            return 0;
+        }
+        // Medium relevance: might be a color
+        return 5;
+    }
+    // Spacing-related properties
+    const spacingProperties = ['margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+        'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+        'gap', 'row-gap', 'column-gap'];
+    if (spacingProperties.includes(propertyName)) {
+        if (lowerVarName.includes('spacing') || lowerVarName.includes('margin') || lowerVarName.includes('padding') ||
+            lowerVarName.includes('gap')) {
+            return 10;
+        }
+        if (lowerVarName.includes('color') || lowerVarName.includes('bg') || lowerVarName.includes('background')) {
+            return 0;
+        }
+        return 5;
+    }
+    // Size-related properties
+    const sizeProperties = ['width', 'height', 'max-width', 'max-height', 'min-width', 'min-height', 'font-size'];
+    if (sizeProperties.includes(propertyName)) {
+        if (lowerVarName.includes('width') || lowerVarName.includes('height') || lowerVarName.includes('size')) {
+            return 10;
+        }
+        if (lowerVarName.includes('color') || lowerVarName.includes('bg') || lowerVarName.includes('background')) {
+            return 0;
+        }
+        return 5;
+    }
+    // Border-radius properties
+    if (propertyName.includes('radius')) {
+        if (lowerVarName.includes('radius') || lowerVarName.includes('rounded')) {
+            return 10;
+        }
+        if (lowerVarName.includes('color') || lowerVarName.includes('bg') || lowerVarName.includes('background')) {
+            return 0;
+        }
+        return 5;
+    }
+    // Font-related properties
+    const fontProperties = ['font-family', 'font-weight', 'font-style'];
+    if (fontProperties.includes(propertyName)) {
+        if (lowerVarName.includes('font')) {
+            return 10;
+        }
+        if (lowerVarName.includes('color') || lowerVarName.includes('spacing')) {
+            return 0;
+        }
+        return 5;
+    }
+    // Default: no strong preference, keep all
+    return -1;
+}
+/**
  * Check if the cursor position is in a context where CSS variable completion is relevant.
  * Returns true if we're in a CSS property value or inside var().
  */
@@ -285,6 +408,11 @@ connection.onCompletion((textDocumentPosition) => {
     if (!isInCssValueContext(document, textDocumentPosition.position)) {
         return [];
     }
+    // Get context to filter suggestions
+    const text = document.getText();
+    const offset = document.offsetAt(textDocumentPosition.position);
+    const beforeCursor = text.slice(Math.max(0, offset - 200), offset);
+    const propertyName = getPropertyNameFromContext(beforeCursor);
     const variables = cssVariableManager.getAllVariables();
     // Deduplicate by name
     const uniqueVars = new Map();
@@ -293,11 +421,27 @@ connection.onCompletion((textDocumentPosition) => {
             uniqueVars.set(v.name, v);
         }
     });
-    return Array.from(uniqueVars.values()).map(v => ({
-        label: v.name,
+    // Score and filter variables based on property context
+    const scoredVars = Array.from(uniqueVars.values()).map(v => ({
+        variable: v,
+        score: scoreVariableRelevance(v.name, propertyName)
+    }));
+    // Filter out score 0 (not relevant) and sort by score (higher first)
+    const filteredAndSorted = scoredVars
+        .filter(sv => sv.score !== 0)
+        .sort((a, b) => {
+        // Sort by score (descending)
+        if (a.score !== b.score) {
+            return b.score - a.score;
+        }
+        // Same score: alphabetical order
+        return a.variable.name.localeCompare(b.variable.name);
+    });
+    return filteredAndSorted.map(sv => ({
+        label: sv.variable.name,
         kind: node_1.CompletionItemKind.Variable,
-        detail: v.value,
-        documentation: `Defined in ${v.uri}`
+        detail: sv.variable.value,
+        documentation: `Defined in ${sv.variable.uri}`
     }));
 });
 // This handler resolves additional information for the item selected in
