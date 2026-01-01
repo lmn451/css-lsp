@@ -170,7 +170,7 @@ class CssVariableManager {
                             // Clean up raw selector if possible, or just take it
                             selector = node.prelude.value;
                         }
-                        else {
+                        else if (node.prelude) {
                             selector = csstree.generate(node.prelude);
                         }
                         selectorStack.push(selector);
@@ -215,8 +215,8 @@ class CssVariableManager {
                     }
                     if (node.type === 'Function' && node.name === 'var') {
                         const children = node.children;
-                        if (children && children.head) {
-                            const firstChild = children.head.data;
+                        if (children && children.first) {
+                            const firstChild = children.first;
                             // Handle var(--name) or var(--name, fallback)
                             // In csstree, --name is an Identifier
                             if (firstChild.type === 'Identifier' && firstChild.name.startsWith('--')) {
@@ -268,8 +268,8 @@ class CssVariableManager {
                 enter: (node) => {
                     if (node.type === 'Function' && node.name === 'var') {
                         const children = node.children;
-                        if (children && children.head) {
-                            const firstChild = children.head.data;
+                        if (children && children.first) {
+                            const firstChild = children.first;
                             if (firstChild.type === 'Identifier' && firstChild.name.startsWith('--')) {
                                 const name = firstChild.name;
                                 if (node.loc) {

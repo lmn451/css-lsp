@@ -6,6 +6,10 @@ const vscode_languageserver_textdocument_1 = require("vscode-languageserver-text
 const cssVariableManager_1 = require("./cssVariableManager");
 const specificity_1 = require("./specificity");
 const colorService_1 = require("./colorService");
+// Parse command-line arguments
+const args = process.argv.slice(2);
+const ENABLE_COLOR_PROVIDER = !args.includes('--no-color-preview');
+const COLOR_ONLY_ON_VARIABLES = args.includes('--color-only-variables') || process.env.CSS_LSP_COLOR_ONLY_VARIABLES === '1';
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
 const connection = (0, node_1.createConnection)(node_1.ProposedFeatures.all);
@@ -25,6 +29,7 @@ let hasDiagnosticRelatedInformationCapability = false;
 connection.onInitialize((params) => {
     logDebug('initialize', {
         rootUri: params.rootUri,
+        // rootPath is deprecated and optional in InitializeParams
         rootPath: params.rootPath,
         workspaceFolders: params.workspaceFolders,
         capabilities: params.capabilities,
@@ -51,7 +56,7 @@ connection.onInitialize((params) => {
             renameProvider: true,
             documentSymbolProvider: true,
             workspaceSymbolProvider: true,
-            colorProvider: true
+            colorProvider: ENABLE_COLOR_PROVIDER
         }
     };
     if (hasWorkspaceFolderCapability) {
@@ -206,8 +211,80 @@ connection.onDidChangeWatchedFiles(async (change) => {
     // Revalidate all open documents
     documents.all().forEach(validateTextDocument);
 });
+/**
+ * Check if the cursor position is in a context where CSS variable completion is relevant.
+ * Returns true if we're in a CSS property value or inside var().
+ */
+function isInCssValueContext(document, position) {
+    const text = document.getText();
+    const offset = document.offsetAt(position);
+    // Get text before cursor (up to 200 chars to analyze context)
+    const beforeCursor = text.slice(Math.max(0, offset - 200), offset);
+    // Check if we're inside var( ) - most relevant context
+    const varMatch = beforeCursor.match(/var\(\s*(--[\w-]*)$/);
+    if (varMatch) {
+        return true;
+    }
+    // Check if we're in a CSS property value position
+    // Look for patterns like "property: |" or "property: value |"
+    // We need to find the last : that isn't inside a {} block or ()
+    let inBraces = 0;
+    let inParens = 0;
+    let lastColonPos = -1;
+    let lastSemicolonPos = -1;
+    let lastBracePos = -1;
+    for (let i = beforeCursor.length - 1; i >= 0; i--) {
+        const char = beforeCursor[i];
+        // Track nesting (scanning backwards)
+        if (char === ')')
+            inParens++;
+        else if (char === '(') {
+            inParens--;
+            if (inParens < 0)
+                break; // We've left the current context
+        }
+        else if (char === '}')
+            inBraces++;
+        else if (char === '{') {
+            inBraces--;
+            if (inBraces < 0) {
+                lastBracePos = i;
+                break; // Found the opening brace of our block
+            }
+        }
+        else if (char === ':' && inParens === 0 && inBraces === 0 && lastColonPos === -1) {
+            lastColonPos = i;
+        }
+        else if (char === ';' && inParens === 0 && inBraces === 0 && lastSemicolonPos === -1) {
+            lastSemicolonPos = i;
+        }
+    }
+    // If we found a colon after the last semicolon or opening brace, we're in a value
+    if (lastColonPos > lastSemicolonPos && lastColonPos > lastBracePos) {
+        // Make sure there's a property name before the colon
+        const beforeColon = beforeCursor.slice(0, lastColonPos).trim();
+        const propertyMatch = beforeColon.match(/[\w-]+$/);
+        if (propertyMatch) {
+            return true;
+        }
+    }
+    // Check for HTML style attribute: style="property: |"
+    const styleAttrMatch = beforeCursor.match(/style\s*=\s*["'][^"']*:\s*[^"';]*$/i);
+    if (styleAttrMatch) {
+        return true;
+    }
+    return false;
+}
 // This handler provides the initial list of the completion items.
-connection.onCompletion((_textDocumentPosition) => {
+connection.onCompletion((textDocumentPosition) => {
+    const document = documents.get(textDocumentPosition.textDocument.uri);
+    if (!document) {
+        return [];
+    }
+    // Only show CSS variable completions in relevant contexts
+    if (!isInCssValueContext(document, textDocumentPosition.position)) {
+        return [];
+    }
     const variables = cssVariableManager.getAllVariables();
     // Deduplicate by name
     const uniqueVars = new Map();
@@ -435,7 +512,7 @@ connection.onRenameRequest((params) => {
             // For usages in var(), replace just the variable name part
             const edit = {
                 range: ref.range,
-                newText: 'uri' in ref && 'value' in ref
+                newText: 'value' in ref
                     ? `${params.newName}: ${ref.value};` // Definition
                     : `var(${params.newName})` // Usage
             };
@@ -465,6 +542,10 @@ connection.onWorkspaceSymbol((params) => {
 });
 // Color Provider: Document Colors
 connection.onDocumentColor((params) => {
+    // Skip if color provider is disabled
+    if (!ENABLE_COLOR_PROVIDER) {
+        return [];
+    }
     const document = documents.get(params.textDocument.uri);
     if (!document) {
         return [];
@@ -472,42 +553,43 @@ connection.onDocumentColor((params) => {
     const colors = [];
     const text = document.getText();
     // 1. Check variable definitions: --my-color: #f00;
-    const definitions = cssVariableManager.getDocumentDefinitions(document.uri);
-    for (const def of definitions) {
-        const color = (0, colorService_1.parseColor)(def.value);
-        if (color) {
-            // Use the stored valueRange if available (accurate from csstree parsing)
-            if (def.valueRange) {
-                colors.push({
-                    range: def.valueRange,
-                    color: color
-                });
-            }
-            else {
-                // Fallback: find the value within the declaration text
-                // This handles cases where valueRange wasn't captured (shouldn't happen normally)
-                const defText = text.substring(document.offsetAt(def.range.start), document.offsetAt(def.range.end));
-                const colonIndex = defText.indexOf(':');
-                if (colonIndex !== -1) {
-                    const afterColon = defText.substring(colonIndex + 1);
-                    const valueIndex = afterColon.indexOf(def.value.trim());
-                    if (valueIndex !== -1) {
-                        const absoluteValueStart = document.offsetAt(def.range.start) + colonIndex + 1 + valueIndex;
-                        const start = document.positionAt(absoluteValueStart);
-                        const end = document.positionAt(absoluteValueStart + def.value.trim().length);
-                        colors.push({
-                            range: { start, end },
-                            color: color
-                        });
+    // Only show color boxes on definitions if COLOR_ONLY_ON_VARIABLES is false
+    if (!COLOR_ONLY_ON_VARIABLES) {
+        const definitions = cssVariableManager.getDocumentDefinitions(document.uri);
+        for (const def of definitions) {
+            const color = (0, colorService_1.parseColor)(def.value);
+            if (color) {
+                // Use the stored valueRange if available (accurate from csstree parsing)
+                if (def.valueRange) {
+                    colors.push({
+                        range: def.valueRange,
+                        color: color
+                    });
+                }
+                else {
+                    // Fallback: find the value within the declaration text
+                    // This handles cases where valueRange wasn't captured (shouldn't happen normally)
+                    const defText = text.substring(document.offsetAt(def.range.start), document.offsetAt(def.range.end));
+                    const colonIndex = defText.indexOf(':');
+                    if (colonIndex !== -1) {
+                        const afterColon = defText.substring(colonIndex + 1);
+                        const valueIndex = afterColon.indexOf(def.value.trim());
+                        if (valueIndex !== -1) {
+                            const absoluteValueStart = document.offsetAt(def.range.start) + colonIndex + 1 + valueIndex;
+                            const start = document.positionAt(absoluteValueStart);
+                            const end = document.positionAt(absoluteValueStart + def.value.trim().length);
+                            colors.push({
+                                range: { start, end },
+                                color: color
+                            });
+                        }
                     }
                 }
             }
         }
     }
     // 2. Check variable usages: var(--my-color)
-    // We want to show the color of the variable being used.
-    // But we can't easily edit it (color picker on usage).
-    // VS Code allows read-only color information.
+    // Always show color boxes on var() usages (they show the resolved CSS variable color)
     const regex = /var\((--[\w-]+)\)/g;
     let match;
     while ((match = regex.exec(text)) !== null) {
@@ -526,6 +608,10 @@ connection.onDocumentColor((params) => {
 });
 // Color Provider: Color Presentation
 connection.onColorPresentation((params) => {
+    // Skip if color provider is disabled
+    if (!ENABLE_COLOR_PROVIDER) {
+        return [];
+    }
     const color = params.color;
     const range = params.range;
     const document = documents.get(params.textDocument.uri);

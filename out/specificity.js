@@ -1,10 +1,4 @@
 "use strict";
-/**
- * CSS Specificity Calculator
- *
- * Calculates and compares CSS selector specificity according to the CSS specification.
- * https://www.w3.org/TR/selectors-3/#specificity
- */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.calculateSpecificity = calculateSpecificity;
 exports.compareSpecificity = compareSpecificity;
@@ -55,7 +49,8 @@ function calculateSpecificity(selector) {
     specificity.classes += classes.length;
     selector = selector.replace(classRegex, '');
     // Count attribute selectors ([attr])
-    const attrRegex = /\[[^\]]+\]/g;
+    // Handle quoted strings inside attributes to avoid stopping at the first ']'
+    const attrRegex = /\[(?:[^\]"']|"[^"]*"|'[^']*')*\]/g;
     const attrs = selector.match(attrRegex) || [];
     specificity.classes += attrs.length;
     selector = selector.replace(attrRegex, '');

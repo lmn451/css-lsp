@@ -1,0 +1,18 @@
+# Ignore development and build artifacts
+.git
+.gitattributes
+.vscode
+.beads
+history/
+
+# Ignore TypeScript source files (we ship compiled JS)
+src/
+tsconfig.json
+*.tsbuildinfo
+
+# Ignore test files
+*.test.ts
+*.test.js
+*.test.js.map
+
+# Keep only the compiled output in out/

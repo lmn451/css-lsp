@@ -4,10 +4,14 @@ A Language Server Protocol (LSP) implementation for CSS variables (custom proper
 
 ## Features
 
+- **Context-Aware Completion**: Intelligently suggests CSS variables only in relevant contexts (property values, inside `var()`, style attributes). No more suggestions in selectors or property names!
 - **Cross-file Completion**: Suggests CSS variables defined in other `.css`, `.scss`, `.sass`, `.less` files or HTML `<style>` blocks.
-- **Hover Information**: Shows the value of the CSS variable on hover.
+- **Hover Information**: Shows the value of the CSS variable on hover with full cascade resolution.
 - **Go to Definition**: Jumps to the line where the variable is defined.
-- **HTML Support**: Parses `<style>` blocks in HTML files for variable definitions.
+- **Find References**: Shows all usages of a CSS variable across files.
+- **Rename Support**: Rename CSS variables across the entire workspace.
+- **Color Decorations**: Shows color boxes next to CSS variables with color values (can be disabled with `--no-color-preview`).
+- **HTML Support**: Parses `<style>` blocks and inline styles in HTML files.
 
 ## Getting Started
 
@@ -27,6 +31,36 @@ A Language Server Protocol (LSP) implementation for CSS variables (custom proper
 ### Using the Language Server
 
 This is a standalone LSP server. To use it, you'll need to integrate it with an LSP client (e.g., a VSCode extension). See the `../css-variable-vscode` project for a VSCode extension that uses this server.
+
+#### Command-Line Options
+
+- `--no-color-preview`: Disable color decorations (color boxes) entirely.
+- `--color-only-variables`: Show color boxes only next to CSS variable usages (like `var(--my-color)`), not on raw color value definitions (like `#f0f0f0`). This keeps color boxes only on the CSS variables, making them stand out more clearly.
+
+**Environment Variables:**
+- `CSS_LSP_COLOR_ONLY_VARIABLES=1`: Same as `--color-only-variables` flag.
+
+**Behavior comparison:**
+
+Without flag (default):
+- `--secondary-color: #f0f0f0` ← Shows color box on `#f0f0f0`
+- `var(--secondary-color)` ← Shows resolved color box
+
+With `--color-only-variables`:
+- `--secondary-color: #f0f0f0` ← No color box (native editor already shows this)
+- `var(--secondary-color)` ← Shows resolved color box (unique to this extension)
+
+Examples:
+```bash
+# Disable all color boxes
+css-variable-lsp --no-color-preview
+
+# Show colors only on CSS variable usages (recommended to avoid duplication)
+css-variable-lsp --color-only-variables
+
+# Or using environment variable
+CSS_LSP_COLOR_ONLY_VARIABLES=1 css-variable-lsp
+```
 
 ### Running Tests
 
