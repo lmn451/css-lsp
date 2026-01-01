@@ -16,7 +16,7 @@ class DOMTree {
                 script: true,
                 noscript: true,
                 style: false, // We want to parse style content
-            }
+            },
         });
     }
     /**
@@ -41,19 +41,11 @@ class DOMTree {
                 return found;
             }
         }
-        // Return this node if no child matched
-        // Manually extract classes from DOMTokenList using item()
-        const classes = [];
-        for (let i = 0; i < node.classList.length; i++) {
-            const className = node.classList.value[i]; // Type assertion needed due to library types
-            if (className)
-                classes.push(className);
-        }
         return {
             tagName: node.tagName,
             id: node.id,
-            classes: classes,
-            element: node
+            classes: [...node.classList.values()],
+            element: node,
         };
     }
     /**
@@ -83,7 +75,7 @@ class DOMTree {
     querySelectorAll(selector) {
         try {
             const elements = this.root.querySelectorAll(selector);
-            return elements.map(el => {
+            return elements.map((el) => {
                 // Manually extract classes from DOMTokenList
                 const classes = [];
                 for (let i = 0; i < el.classList.length; i++) {
@@ -95,7 +87,7 @@ class DOMTree {
                     tagName: el.tagName,
                     id: el.id,
                     classes: classes,
-                    element: el
+                    element: el,
                 };
             });
         }

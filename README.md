@@ -35,17 +35,27 @@ This is a standalone LSP server. To use it, you'll need to integrate it with an 
 #### Command-Line Options
 
 - `--no-color-preview`: Disable color decorations (color boxes) entirely.
-- `--color-only-variables`: Show color boxes only next to CSS variable definitions (like `--my-color: #f00`), not on usages (like `var(--my-color)`). This matches the native editor behavior where color boxes appear on the actual color values.
+- `--color-only-variables`: Show color boxes only next to CSS variable usages (like `var(--my-color)`), not on raw color value definitions (like `#f0f0f0`). This keeps color boxes only on the CSS variables, making them stand out more clearly.
 
 **Environment Variables:**
 - `CSS_LSP_COLOR_ONLY_VARIABLES=1`: Same as `--color-only-variables` flag.
+
+**Behavior comparison:**
+
+Without flag (default):
+- `--secondary-color: #f0f0f0` ← Shows color box on `#f0f0f0`
+- `var(--secondary-color)` ← Shows resolved color box
+
+With `--color-only-variables`:
+- `--secondary-color: #f0f0f0` ← No color box (native editor already shows this)
+- `var(--secondary-color)` ← Shows resolved color box (unique to this extension)
 
 Examples:
 ```bash
 # Disable all color boxes
 css-variable-lsp --no-color-preview
 
-# Show colors only on variable definitions (recommended)
+# Show colors only on CSS variable usages (recommended to avoid duplication)
 css-variable-lsp --color-only-variables
 
 # Or using environment variable
