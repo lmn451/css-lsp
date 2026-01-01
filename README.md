@@ -4,10 +4,14 @@ A Language Server Protocol (LSP) implementation for CSS variables (custom proper
 
 ## Features
 
+- **Context-Aware Completion**: Intelligently suggests CSS variables only in relevant contexts (property values, inside `var()`, style attributes). No more suggestions in selectors or property names!
 - **Cross-file Completion**: Suggests CSS variables defined in other `.css`, `.scss`, `.sass`, `.less` files or HTML `<style>` blocks.
-- **Hover Information**: Shows the value of the CSS variable on hover.
+- **Hover Information**: Shows the value of the CSS variable on hover with full cascade resolution.
 - **Go to Definition**: Jumps to the line where the variable is defined.
-- **HTML Support**: Parses `<style>` blocks in HTML files for variable definitions.
+- **Find References**: Shows all usages of a CSS variable across files.
+- **Rename Support**: Rename CSS variables across the entire workspace.
+- **Color Decorations**: Shows color boxes next to CSS variables with color values (can be disabled with `--no-color-preview`).
+- **HTML Support**: Parses `<style>` blocks and inline styles in HTML files.
 
 ## Getting Started
 
@@ -27,6 +31,15 @@ A Language Server Protocol (LSP) implementation for CSS variables (custom proper
 ### Using the Language Server
 
 This is a standalone LSP server. To use it, you'll need to integrate it with an LSP client (e.g., a VSCode extension). See the `../css-variable-vscode` project for a VSCode extension that uses this server.
+
+#### Command-Line Options
+
+- `--no-color-preview`: Disable color decorations (color boxes) for CSS variables. Useful if another extension already provides color previews and you want to avoid duplicates.
+
+Example:
+```bash
+css-variable-lsp --no-color-preview
+```
 
 ### Running Tests
 

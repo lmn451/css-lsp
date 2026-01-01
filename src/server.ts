@@ -33,6 +33,10 @@ import { CssVariableManager } from './cssVariableManager';
 import { calculateSpecificity, compareSpecificity, formatSpecificity, matchesContext } from './specificity';
 import { parseColor, formatColor, formatColorAsHex, formatColorAsRgb, formatColorAsHsl } from './colorService';
 
+// Parse command-line arguments
+const args = process.argv.slice(2);
+const ENABLE_COLOR_PROVIDER = !args.includes('--no-color-preview');
+
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
 const connection = createConnection(ProposedFeatures.all);
@@ -92,7 +96,7 @@ connection.onInitialize((params: InitializeParams) => {
 			renameProvider: true,
 			documentSymbolProvider: true,
 			workspaceSymbolProvider: true,
-			colorProvider: true
+			colorProvider: ENABLE_COLOR_PROVIDER
 		}
 	};
 	if (hasWorkspaceFolderCapability) {
@@ -282,9 +286,90 @@ connection.onDidChangeWatchedFiles(async (change) => {
 	documents.all().forEach(validateTextDocument);
 });
 
+/**
+ * Check if the cursor position is in a context where CSS variable completion is relevant.
+ * Returns true if we're in a CSS property value or inside var().
+ */
+function isInCssValueContext(document: TextDocument, position: TextDocumentPositionParams['position']): boolean {
+	const text = document.getText();
+	const offset = document.offsetAt(position);
+	
+	// Get text before cursor (up to 200 chars to analyze context)
+	const beforeCursor = text.slice(Math.max(0, offset - 200), offset);
+	
+	// Check if we're inside var( ) - most relevant context
+	const varMatch = beforeCursor.match(/var\(\s*(--[\w-]*)$/);
+	if (varMatch) {
+		return true;
+	}
+	
+	// Check if we're in a CSS property value position
+	// Look for patterns like "property: |" or "property: value |"
+	// We need to find the last : that isn't inside a {} block or ()
+	
+	let inBraces = 0;
+	let inParens = 0;
+	let lastColonPos = -1;
+	let lastSemicolonPos = -1;
+	let lastBracePos = -1;
+	
+	for (let i = beforeCursor.length - 1; i >= 0; i--) {
+		const char = beforeCursor[i];
+		
+		// Track nesting (scanning backwards)
+		if (char === ')') inParens++;
+		else if (char === '(') {
+			inParens--;
+			if (inParens < 0) break; // We've left the current context
+		}
+		else if (char === '}') inBraces++;
+		else if (char === '{') {
+			inBraces--;
+			if (inBraces < 0) {
+				lastBracePos = i;
+				break; // Found the opening brace of our block
+			}
+		}
+		else if (char === ':' && inParens === 0 && inBraces === 0 && lastColonPos === -1) {
+			lastColonPos = i;
+		}
+		else if (char === ';' && inParens === 0 && inBraces === 0 && lastSemicolonPos === -1) {
+			lastSemicolonPos = i;
+		}
+	}
+	
+	// If we found a colon after the last semicolon or opening brace, we're in a value
+	if (lastColonPos > lastSemicolonPos && lastColonPos > lastBracePos) {
+		// Make sure there's a property name before the colon
+		const beforeColon = beforeCursor.slice(0, lastColonPos).trim();
+		const propertyMatch = beforeColon.match(/[\w-]+$/);
+		if (propertyMatch) {
+			return true;
+		}
+	}
+	
+	// Check for HTML style attribute: style="property: |"
+	const styleAttrMatch = beforeCursor.match(/style\s*=\s*["'][^"']*:\s*[^"';]*$/i);
+	if (styleAttrMatch) {
+		return true;
+	}
+	
+	return false;
+}
+
 // This handler provides the initial list of the completion items.
 connection.onCompletion(
-	(_textDocumentPosition: TextDocumentPositionParams): CompletionItem[] => {
+	(textDocumentPosition: TextDocumentPositionParams): CompletionItem[] => {
+		const document = documents.get(textDocumentPosition.textDocument.uri);
+		if (!document) {
+			return [];
+		}
+		
+		// Only show CSS variable completions in relevant contexts
+		if (!isInCssValueContext(document, textDocumentPosition.position)) {
+			return [];
+		}
+		
 		const variables = cssVariableManager.getAllVariables();
 		// Deduplicate by name
 		const uniqueVars = new Map<string, CssVariable>();
@@ -602,6 +687,11 @@ connection.onWorkspaceSymbol((params) => {
 
 // Color Provider: Document Colors
 connection.onDocumentColor((params) => {
+	// Skip if color provider is disabled
+	if (!ENABLE_COLOR_PROVIDER) {
+		return [];
+	}
+
 	const document = documents.get(params.textDocument.uri);
 	if (!document) {
 		return [];
@@ -668,6 +758,11 @@ connection.onDocumentColor((params) => {
 
 // Color Provider: Color Presentation
 connection.onColorPresentation((params) => {
+	// Skip if color provider is disabled
+	if (!ENABLE_COLOR_PROVIDER) {
+		return [];
+	}
+
 	const color = params.color;
 	const range = params.range;
 	const document = documents.get(params.textDocument.uri);
