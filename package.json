@@ -4,20 +4,32 @@
 	"description": "A CSS Language Server for CSS Variables",
 	"license": "GPL-3.0",
 	"bin": {
-		"css-variable-lsp": "./server/out/server.js"
+		"css-variable-lsp": "./out/server.js"
 	},
 	"scripts": {
 		"compile": "tsc -b",
 		"watch": "tsc -b -w",
-		"postinstall": "cd server && npm install",
-		"test": "cd server && npm run test:all"
+		"test": "ts-node src/test.ts",
+		"test:all": "ts-node src/test.ts && ts-node src/cascadeAndInline.test.ts && ts-node src/domTree.test.ts && ts-node src/fileTypesAndUpdates.test.ts && ts-node src/htmlComments.test.ts && ts-node src/fileLifecycle.test.ts && ts-node src/colorProvider.test.ts && ts-node src/colorFormatting.test.ts && ts-node src/debugLogging.test.ts"
 	},
 	"devDependencies": {
 		"@types/css-tree": "^2.3.11",
 		"@types/node": "24.10.1",
+		"ts-node": "^10.9.2",
 		"typescript": "^5.9.3"
 	},
 	"dependencies": {
-		"css-tree": "^3.1.0"
-	}
+		"css-tree": "^3.1.0",
+		"glob": "^12.0.0",
+		"vscode-languageserver": "^9.0.1",
+		"vscode-languageserver-textdocument": "^1.0.11",
+		"vscode-uri": "^3.0.8",
+		"node-html-parser": "^7.0.1"
+	},
+	"files": [
+		"out",
+		"package.json",
+		"README.md",
+		"LICENSE"
+	]
 }
