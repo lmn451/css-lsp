@@ -9,6 +9,7 @@ const colorService_1 = require("./colorService");
 // Parse command-line arguments
 const args = process.argv.slice(2);
 const ENABLE_COLOR_PROVIDER = !args.includes('--no-color-preview');
+const COLOR_ONLY_ON_VARIABLES = args.includes('--color-only-variables') || process.env.CSS_LSP_COLOR_ONLY_VARIABLES === '1';
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
 const connection = (0, node_1.createConnection)(node_1.ProposedFeatures.all);
@@ -585,21 +586,21 @@ connection.onDocumentColor((params) => {
         }
     }
     // 2. Check variable usages: var(--my-color)
-    // We want to show the color of the variable being used.
-    // But we can't easily edit it (color picker on usage).
-    // VS Code allows read-only color information.
-    const regex = /var\((--[\w-]+)\)/g;
-    let match;
-    while ((match = regex.exec(text)) !== null) {
-        const varName = match[1];
-        const color = cssVariableManager.resolveVariableColor(varName);
-        if (color) {
-            const start = document.positionAt(match.index);
-            const end = document.positionAt(match.index + match[0].length);
-            colors.push({
-                range: { start, end },
-                color: color
-            });
+    // Only show color boxes on usages if COLOR_ONLY_ON_VARIABLES is false
+    if (!COLOR_ONLY_ON_VARIABLES) {
+        const regex = /var\((--[\w-]+)\)/g;
+        let match;
+        while ((match = regex.exec(text)) !== null) {
+            const varName = match[1];
+            const color = cssVariableManager.resolveVariableColor(varName);
+            if (color) {
+                const start = document.positionAt(match.index);
+                const end = document.positionAt(match.index + match[0].length);
+                colors.push({
+                    range: { start, end },
+                    color: color
+                });
+            }
         }
     }
     return colors;
