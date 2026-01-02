@@ -1,13 +1,10 @@
-import * as assert from 'assert';
-import { parseColor, formatColor } from './colorService';
-import { CssVariableManager } from './cssVariableManager';
+import { test } from 'node:test';
+import { strict as assert } from 'node:assert';
+import { parseColor, formatColor } from '../src/colorService';
+import { CssVariableManager } from '../src/cssVariableManager';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 
-console.log('Running Color Provider tests...');
-
-// Test 1: Color Service Parsing
-{
-	// Hex
+test('color service parsing and formatting', () => {
 	const red = parseColor('#ff0000');
 	assert.deepStrictEqual(red, { red: 1, green: 0, blue: 0, alpha: 1 });
 
@@ -17,29 +14,23 @@ console.log('Running Color Provider tests...');
 	const alpha = parseColor('#00000080');
 	assert.strictEqual(alpha?.alpha.toFixed(1), '0.5');
 
-	// RGB
 	const green = parseColor('rgb(0, 255, 0)');
 	assert.deepStrictEqual(green, { red: 0, green: 1, blue: 0, alpha: 1 });
 
 	const rgba = parseColor('rgba(0, 0, 0, 0.5)');
 	assert.strictEqual(rgba?.alpha, 0.5);
 
-	// Named
 	const white = parseColor('white');
 	assert.deepStrictEqual(white, { red: 1, green: 1, blue: 1, alpha: 1 });
 
-	// Format
 	const redColor = { red: 1, green: 0, blue: 0, alpha: 1 };
 	assert.strictEqual(formatColor(redColor), '#ff0000');
 
 	const alphaColor = { red: 0, green: 0, blue: 0, alpha: 0.5 };
 	assert.strictEqual(formatColor(alphaColor), 'rgba(0, 0, 0, 0.5)');
+});
 
-	console.log('Test 1 passed: Color Service Parsing');
-}
-
-// Test 2: CSS Variable Manager Color Resolution
-{
+test('CSS variable color resolution', () => {
 	const manager = new CssVariableManager();
 	const css = `
 		:root {
@@ -67,8 +58,4 @@ console.log('Running Color Provider tests...');
 
 	const notColor = manager.resolveVariableColor('--not-color');
 	assert.strictEqual(notColor, null);
-
-	console.log('Test 2 passed: Variable Color Resolution');
-}
-
-console.log('All Color Provider tests passed!');
+});
