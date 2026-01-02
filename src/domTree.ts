@@ -12,7 +12,6 @@ import {
 export interface DOMNodeInfo {
   tagName: string;
   id?: string;
-  classes: string[];
   element: ParsedHTMLElement;
 }
 
@@ -42,7 +41,7 @@ export class DOMTree {
 
   private findNodeAtPositionRecursive(
     node: ParsedNode,
-    position: number,
+    position: number
   ): DOMNodeInfo | undefined {
     if (!(node instanceof ParsedHTMLElement)) {
       return undefined;
@@ -65,7 +64,6 @@ export class DOMTree {
     return {
       tagName: node.tagName,
       id: node.id,
-      classes: [...node.classList.values()],
       element: node,
     };
   }
@@ -99,17 +97,9 @@ export class DOMTree {
     try {
       const elements = this.root.querySelectorAll(selector);
       return elements.map((el) => {
-        // Manually extract classes from DOMTokenList
-        const classes: string[] = [];
-        for (let i = 0; i < el.classList.length; i++) {
-          const className = el.classList.value[i];
-          if (className) classes.push(className);
-        }
-
         return {
           tagName: el.tagName,
           id: el.id,
-          classes: classes,
           element: el as ParsedHTMLElement,
         };
       });
