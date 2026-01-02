@@ -1,111 +1,72 @@
 # CSS Variable Language Server
 
-A Language Server Protocol (LSP) implementation for CSS variables (custom properties). This server can be used by any LSP-compatible editor.
+A Language Server Protocol (LSP) implementation focused on CSS custom properties (variables). It indexes variables across your workspace and provides completions, hover resolution, and diagnostics.
 
 ## Features
 
-- **Context-Aware Completion**: Intelligently suggests CSS variables only in relevant contexts (property values, inside `var()`, style attributes). No more suggestions in selectors or property names!
-- **Cross-file Completion**: Suggests CSS variables defined in other `.css`, `.scss`, `.sass`, `.less` files or HTML `<style>` blocks.
-- **Hover Information**: Shows the value of the CSS variable on hover with full cascade resolution.
-- **Go to Definition**: Jumps to the line where the variable is defined.
-- **Find References**: Shows all usages of a CSS variable across files.
-- **Rename Support**: Rename CSS variables across the entire workspace.
-- **Color Decorations**: Shows color boxes next to CSS variables with color values (can be disabled with `--no-color-preview`).
-- **HTML Support**: Parses `<style>` blocks and inline styles in HTML files.
+- **Context-aware completion** in CSS property values, inside `var(...)`, and in HTML `style=""` attributes, with relevance scoring.
+- **Workspace-wide indexing** across `.css`, `.scss`, `.sass`, `.less`, plus HTML `<style>` blocks and inline styles.
+- **Cascade-aware hover** that orders definitions by `!important`, specificity, and source order.
+- **Go to definition**, **find references**, and **rename** support.
+- **Diagnostics** for undefined variables used via `var(--name)`.
+- **Color decorations** and a color picker with hex/rgb/hsl presentations.
 
 ## Getting Started
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) (v16 or higher)
-- [Visual Studio Code](https://code.visualstudio.com/)
+- Node.js (ES2020-compatible; v16+ recommended)
+- npm
 
-### Installation
-
-1.  Clone the repository.
-2.  Install dependencies:
-    ```bash
-    npm install
-    ```
-
-### Using the Language Server
-
-This is a standalone LSP server. To use it, you'll need to integrate it with an LSP client (e.g., a VSCode extension). See the `../css-variable-vscode` project for a VSCode extension that uses this server.
-
-#### Command-Line Options
-
-- `--no-color-preview`: Disable color decorations (color boxes) entirely.
-- `--color-only-variables`: Show color boxes only next to CSS variable usages (like `var(--my-color)`), not on raw color value definitions (like `#f0f0f0`). This keeps color boxes only on the CSS variables, making them stand out more clearly.
-
-**Environment Variables:**
-- `CSS_LSP_COLOR_ONLY_VARIABLES=1`: Same as `--color-only-variables` flag.
-
-**Behavior comparison:**
-
-Without flag (default):
-- `--secondary-color: #f0f0f0` ← Shows color box on `#f0f0f0`
-- `var(--secondary-color)` ← Shows resolved color box
-
-With `--color-only-variables`:
-- `--secondary-color: #f0f0f0` ← No color box (native editor already shows this)
-- `var(--secondary-color)` ← Shows resolved color box (unique to this extension)
-
-Examples:
-```bash
-# Disable all color boxes
-css-variable-lsp --no-color-preview
-
-# Show colors only on CSS variable usages (recommended to avoid duplication)
-css-variable-lsp --color-only-variables
-
-# Or using environment variable
-CSS_LSP_COLOR_ONLY_VARIABLES=1 css-variable-lsp
-```
-
-### Running Tests
-
-To run all tests in the repository:
+### Install / Build
 
 ```bash
-# From the root directory
-npm test
-
-# Or from the server directory
-cd server
-npm run test:all
+npm install
+npm run compile
 ```
 
-Individual test suites:
+### Run
+
 ```bash
-cd server
-npm test              # Core functionality tests
-npx ts-node src/easyWins.test.ts  # Easy wins features
+# via local build
+node out/server.js --stdio
+
+# or, if installed from npm
+css-variable-lsp --stdio
 ```
 
-## New Features
+### Editor Integration
 
-### ✨ **Context-Specific Resolution**
-The LSP now understands CSS specificity and shows which variable value would actually apply:
-- Tracks CSS selectors for each definition
-- Calculates full CSS specificity
-- Considers `!important` declarations
-- Respects source order for equal specificity
-- Parses inline `style=""` attributes
+This is a standalone LSP server. Configure it in any LSP client.
 
-### Hover Example
-When you hover over a CSS variable, you'll see:
-```
-### CSS Variable: `--primary-color`
+[VS Code extension](https://marketplace.visualstudio.com/items?itemName=miclmn451.css-variables-vscode)
 
-**Definitions** (CSS cascade order):
+[Zed extension](https://zed.dev/extensions/css-variables)
 
-1. `green` from `.special` (0,1,0) !important ✓ Wins (!important)
-2. `blue` from `div` (0,0,1) _(overridden by !important)_
-3. `red` from `:root` (0,1,0) _(lower specificity)_
+## Configuration
 
-_Context: `div`_
-```
+Command-line flags:
+
+- `--no-color-preview`
+- `--color-only-variables` (show colors only on `var(--...)` usages)
+
+Environment variables:
+
+- `CSS_LSP_COLOR_ONLY_VARIABLES=1` (same as `--color-only-variables`)
+- `CSS_LSP_DEBUG=1` (enable debug logging)
+
+## Cascade Awareness (Best-Effort)
+
+Hover and color resolution use CSS cascade rules (specificity, `!important`, source order) but do not model DOM nesting or selector combinators. See `LIMITATIONS.md` for details.
 
 ## Project Structure
 
-- `server/`: Node.js Language Server implementation (CSS variable analysis logic).
+- `src/` TypeScript source
+- `out/` compiled server (npm bin entry)
+- `LIMITATIONS.md` known limitations
+
+## Testing
+
+```bash
+npm test
+```
