@@ -1,17 +1,14 @@
-import { CssVariableManager } from './cssVariableManager';
+import { test } from 'node:test';
+import { strict as assert } from 'node:assert';
+import { CssVariableManager } from '../src/cssVariableManager';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import * as assert from 'assert';
-
-const manager = new CssVariableManager();
 
 function createDoc(uri: string, content: string, languageId: string = 'css') {
 	return TextDocument.create(uri, languageId, 1, content);
 }
 
-console.log('Running HTML Comments tests...');
-
-// Test 1: HTML comments with style blocks should be ignored
-{
+test('HTML comments with style blocks are ignored', () => {
+	const manager = new CssVariableManager();
 	const html = `
 <!DOCTYPE html>
 <html>
@@ -35,21 +32,19 @@ console.log('Running HTML Comments tests...');
 `;
 	const doc = createDoc('file:///test1.html', html, 'html');
 	manager.parseDocument(doc);
-	
+
 	const commentedVar = manager.getVariables('--commented-color');
 	const anotherCommented = manager.getVariables('--another-commented');
 	const activeVar = manager.getVariables('--active-color');
-	
-	assert.strictEqual(commentedVar.length, 0, 'Should NOT find --commented-color');
-	assert.strictEqual(anotherCommented.length, 0, 'Should NOT find --another-commented');
-	assert.strictEqual(activeVar.length, 1, 'Should find --active-color');
-	assert.strictEqual(activeVar[0].value, 'red', 'Active color should be red');
-	
-	console.log('Test 1 passed: HTML comments with style blocks are ignored');
-}
 
-// Test 2: HTML comments with inline styles should be ignored
-{
+	assert.strictEqual(commentedVar.length, 0);
+	assert.strictEqual(anotherCommented.length, 0);
+	assert.strictEqual(activeVar.length, 1);
+	assert.strictEqual(activeVar[0].value, 'red');
+});
+
+test('HTML comments with inline styles are ignored', () => {
+	const manager = new CssVariableManager();
 	const html = `
 <!DOCTYPE html>
 <html>
@@ -61,22 +56,20 @@ console.log('Running HTML Comments tests...');
 `;
 	const doc = createDoc('file:///test2.html', html, 'html');
 	manager.parseDocument(doc);
-	
+
 	const commentedUsage = manager.getVariableUsages('--commented-inline');
 	const bgCommentedUsage = manager.getVariableUsages('--bg-commented');
 	const activeUsage = manager.getVariableUsages('--active-inline');
 	const bgActiveUsage = manager.getVariableUsages('--bg-active');
-	
-	assert.strictEqual(commentedUsage.length, 0, 'Should NOT find --commented-inline usage');
-	assert.strictEqual(bgCommentedUsage.length, 0, 'Should NOT find --bg-commented usage');
-	assert.strictEqual(activeUsage.length, 1, 'Should find --active-inline usage');
-	assert.strictEqual(bgActiveUsage.length, 1, 'Should find --bg-active usage');
-	
-	console.log('Test 2 passed: HTML comments with inline styles are ignored');
-}
 
-// Test 3: Multi-line HTML comments
-{
+	assert.strictEqual(commentedUsage.length, 0);
+	assert.strictEqual(bgCommentedUsage.length, 0);
+	assert.strictEqual(activeUsage.length, 1);
+	assert.strictEqual(bgActiveUsage.length, 1);
+});
+
+test('multi-line HTML comments are ignored', () => {
+	const manager = new CssVariableManager();
 	const html = `
 <!DOCTYPE html>
 <html>
@@ -101,18 +94,16 @@ console.log('Running HTML Comments tests...');
 `;
 	const doc = createDoc('file:///test3.html', html, 'html');
 	manager.parseDocument(doc);
-	
+
 	const commentedVar = manager.getVariables('--multi-line-commented');
 	const activeVar = manager.getVariables('--multi-line-active');
-	
-	assert.strictEqual(commentedVar.length, 0, 'Should NOT find --multi-line-commented');
-	assert.strictEqual(activeVar.length, 1, 'Should find --multi-line-active');
-	
-	console.log('Test 3 passed: Multi-line HTML comments are ignored');
-}
 
-// Test 4: CSS comments within style blocks still work (not HTML comments)
-{
+	assert.strictEqual(commentedVar.length, 0);
+	assert.strictEqual(activeVar.length, 1);
+});
+
+test('CSS comments within style blocks still work', () => {
+	const manager = new CssVariableManager();
 	const html = `
 <!DOCTYPE html>
 <html>
@@ -129,18 +120,16 @@ console.log('Running HTML Comments tests...');
 `;
 	const doc = createDoc('file:///test4.html', html, 'html');
 	manager.parseDocument(doc);
-	
+
 	const cssCommented = manager.getVariables('--css-commented');
 	const cssActive = manager.getVariables('--css-active');
-	
-	assert.strictEqual(cssCommented.length, 0, 'Should NOT find --css-commented (CSS comment)');
-	assert.strictEqual(cssActive.length, 1, 'Should find --css-active');
-	
-	console.log('Test 4 passed: CSS comments within style blocks are still handled by csstree');
-}
 
-// Test 5: Nested HTML comments (edge case)
-{
+	assert.strictEqual(cssCommented.length, 0);
+	assert.strictEqual(cssActive.length, 1);
+});
+
+test('nested HTML comments are ignored', () => {
+	const manager = new CssVariableManager();
 	const html = `
 <!DOCTYPE html>
 <html>
@@ -162,21 +151,18 @@ console.log('Running HTML Comments tests...');
 `;
 	const doc = createDoc('file:///test5.html', html, 'html');
 	manager.parseDocument(doc);
-	
+
 	const outerVar = manager.getVariables('--outer');
 	const innerVar = manager.getVariables('--inner');
 	const validVar = manager.getVariables('--valid');
-	
-	// Note: HTML spec says nested comments are invalid, but our regex should handle them
-	assert.strictEqual(outerVar.length, 0, 'Should NOT find --outer');
-	assert.strictEqual(innerVar.length, 0, 'Should NOT find --inner');
-	assert.strictEqual(validVar.length, 1, 'Should find --valid');
-	
-	console.log('Test 5 passed: Nested HTML comments handled');
-}
 
-// Test 6: Position tracking should still work after comment removal
-{
+	assert.strictEqual(outerVar.length, 0);
+	assert.strictEqual(innerVar.length, 0);
+	assert.strictEqual(validVar.length, 1);
+});
+
+test('position tracking works after comment removal', () => {
+	const manager = new CssVariableManager();
 	const html = `
 <!DOCTYPE html>
 <html>
@@ -192,14 +178,10 @@ console.log('Running HTML Comments tests...');
 `;
 	const doc = createDoc('file:///test6.html', html, 'html');
 	manager.parseDocument(doc);
-	
-	const positionedVar = manager.getVariables('--positioned');
-	
-	assert.strictEqual(positionedVar.length, 1, 'Should find --positioned');
-	assert.ok(positionedVar[0].range, 'Should have range information');
-	assert.ok(positionedVar[0].range.start.line >= 0, 'Should have valid line number');
-	
-	console.log('Test 6 passed: Position tracking works after comment removal');
-}
 
-console.log('All HTML Comments tests passed!');
+	const positionedVar = manager.getVariables('--positioned');
+
+	assert.strictEqual(positionedVar.length, 1);
+	assert.ok(positionedVar[0].range);
+	assert.ok(positionedVar[0].range.start.line >= 0);
+});
