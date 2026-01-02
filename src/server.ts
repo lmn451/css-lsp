@@ -31,7 +31,7 @@ import { CssVariable } from './cssVariableManager';
 
 import { CssVariableManager } from './cssVariableManager';
 import { calculateSpecificity, compareSpecificity, formatSpecificity, matchesContext } from './specificity';
-import { parseColor, formatColor, formatColorAsHex, formatColorAsRgb, formatColorAsHsl } from './colorService';
+import { parseColor, formatColorAsHex, formatColorAsRgb, formatColorAsHsl } from './colorService';
 
 // Parse command-line arguments
 const args = process.argv.slice(2);
