@@ -84,6 +84,21 @@ Defaults:
 
 `abbreviated` mode shortens each directory segment (except the final one) to the configured length, matching fish-style prompt shortening. Lookup globs accept standard glob patterns (including brace expansions like `**/*.{css,scss}`) and the default ignore list remains in effect even when lookup globs are provided.
 
+### Completion Path Examples
+
+Assume a variable is defined in `/Users/you/project/src/styles/theme.css` and your workspace root is `/Users/you/project`.
+
+- `--path-display=relative` (default):
+  - `Defined in src/styles/theme.css`
+- `--path-display=absolute`:
+  - `Defined in /Users/you/project/src/styles/theme.css`
+- `--path-display=abbreviated --path-display-length=1`:
+  - `Defined in s/s/theme.css`
+- `--path-display=abbreviated --path-display-length=2`:
+  - `Defined in sr/st/theme.css`
+- `--path-display=abbreviated --path-display-length=0` (no shortening):
+  - `Defined in src/styles/theme.css`
+
 ## Cascade Awareness (Best-Effort)
 
 Hover and color resolution use CSS cascade rules (specificity, `!important`, source order) but do not model DOM nesting or selector combinators. See `LIMITATIONS.md` for details.
