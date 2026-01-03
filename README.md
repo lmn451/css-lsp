@@ -58,7 +58,7 @@ Environment variables:
 - `CSS_LSP_LOOKUP_FILES` (comma-separated glob patterns; ignored if CLI lookup flags are provided)
 - `CSS_LSP_DEBUG=1` (enable debug logging)
 
-When lookup globs are provided, the default ignore list is disabled.
+The default ignore list (e.g., `node_modules`, `dist`) remains in effect even when lookup globs are provided.
 
 ## Cascade Awareness (Best-Effort)
 

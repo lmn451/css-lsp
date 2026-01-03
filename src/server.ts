@@ -38,7 +38,6 @@ const args = process.argv.slice(2);
 const ENABLE_COLOR_PROVIDER = !args.includes('--no-color-preview');
 const COLOR_ONLY_ON_VARIABLES = args.includes('--color-only-variables') || process.env.CSS_LSP_COLOR_ONLY_VARIABLES === '1';
 const LOOKUP_FILES = resolveLookupFiles(args);
-const HAS_LOOKUP_OVERRIDE = LOOKUP_FILES !== undefined;
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -56,8 +55,7 @@ function logDebug(label: string, payload: unknown) {
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 const cssVariableManager = new CssVariableManager(
 	connection.console,
-	LOOKUP_FILES,
-	HAS_LOOKUP_OVERRIDE
+	LOOKUP_FILES
 );
 
 function splitLookupList(value: string): string[] {
