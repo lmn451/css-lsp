@@ -49,10 +49,13 @@ Command-line flags:
 
 - `--no-color-preview`
 - `--color-only-variables` (show colors only on `var(--...)` usages)
+- `--lookup-files "<glob>,<glob>"` (comma-separated list of glob patterns)
+- `--lookup-file "<glob>"` (repeatable)
 
 Environment variables:
 
 - `CSS_LSP_COLOR_ONLY_VARIABLES=1` (same as `--color-only-variables`)
+- `CSS_LSP_LOOKUP_FILES` (comma-separated glob patterns; ignored if CLI lookup flags are provided)
 - `CSS_LSP_DEBUG=1` (enable debug logging)
 
 ## Cascade Awareness (Best-Effort)

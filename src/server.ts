@@ -37,6 +37,7 @@ import { parseColor, formatColor, formatColorAsHex, formatColorAsRgb, formatColo
 const args = process.argv.slice(2);
 const ENABLE_COLOR_PROVIDER = !args.includes('--no-color-preview');
 const COLOR_ONLY_ON_VARIABLES = args.includes('--color-only-variables') || process.env.CSS_LSP_COLOR_ONLY_VARIABLES === '1';
+const LOOKUP_FILES = resolveLookupFiles(args);
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -52,7 +53,53 @@ function logDebug(label: string, payload: unknown) {
 
 // Create a simple text document manager.
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
-const cssVariableManager = new CssVariableManager(connection.console);
+const cssVariableManager = new CssVariableManager(connection.console, LOOKUP_FILES);
+
+function splitLookupList(value: string): string[] {
+	return value
+		.split(',')
+		.map(entry => entry.trim())
+		.filter(Boolean);
+}
+
+function resolveLookupFiles(argv: string[]): string[] | undefined {
+	const cliFiles: string[] = [];
+
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+		if (arg === '--lookup-files' && argv[i + 1]) {
+			cliFiles.push(...splitLookupList(argv[i + 1]));
+			i++;
+			continue;
+		}
+		if (arg.startsWith('--lookup-files=')) {
+			cliFiles.push(...splitLookupList(arg.slice('--lookup-files='.length)));
+			continue;
+		}
+		if (arg === '--lookup-file' && argv[i + 1]) {
+			cliFiles.push(argv[i + 1]);
+			i++;
+			continue;
+		}
+		if (arg.startsWith('--lookup-file=')) {
+			cliFiles.push(arg.slice('--lookup-file='.length));
+		}
+	}
+
+	if (cliFiles.length > 0) {
+		return cliFiles;
+	}
+
+	const envValue = process.env.CSS_LSP_LOOKUP_FILES;
+	if (envValue) {
+		const envFiles = splitLookupList(envValue);
+		if (envFiles.length > 0) {
+			return envFiles;
+		}
+	}
+
+	return undefined;
+}
 
 let hasConfigurationCapability = false;
 let hasWorkspaceFolderCapability = false;

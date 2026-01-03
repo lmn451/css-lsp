@@ -9,6 +9,52 @@ import { parse, HTMLElement as ParsedHTMLElement } from 'node-html-parser';
 import { Color } from 'vscode-languageserver/node';
 import { parseColor } from './colorService';
 import { calculateSpecificity, compareSpecificity } from './specificity';
+import * as path from 'path';
+
+const DEFAULT_LOOKUP_FILES = [
+	'**/*.css',
+	'**/*.scss',
+	'**/*.sass',
+	'**/*.less',
+	'**/*.html',
+	'**/*.vue',
+	'**/*.svelte',
+	'**/*.astro',
+	'**/*.ripple'
+];
+
+const DEFAULT_IGNORE_GLOBS = [
+	'**/node_modules/**',
+	'**/dist/**',
+	'**/out/**',
+	'**/.git/**'
+];
+
+const EXTENSION_LANGUAGE_MAP = new Map<string, string>([
+	['.css', 'css'],
+	['.scss', 'scss'],
+	['.sass', 'sass'],
+	['.less', 'less'],
+	['.html', 'html'],
+	['.vue', 'html'],
+	['.svelte', 'html'],
+	['.astro', 'html'],
+	['.ripple', 'html'],
+]);
+
+function extractExtensions(pattern: string): string[] {
+	const braceMatch = pattern.match(/\{([^}]+)\}/);
+	if (braceMatch) {
+		return braceMatch[1]
+			.split(',')
+			.map(ext => ext.trim())
+			.filter(Boolean)
+			.map(ext => (ext.startsWith('.') ? ext : `.${ext}`));
+	}
+
+	const ext = path.extname(pattern);
+	return ext ? [ext] : [];
+}
 
 export interface CssVariable {
 	name: string;
@@ -39,8 +85,11 @@ export class CssVariableManager {
 	private usages: Map<string, CssVariableUsage[]> = new Map();
 	private domTrees: Map<string, DOMTree> = new Map(); // URI -> DOM tree
 	private logger: Logger;
+	private lookupFiles: string[];
+	private ignoreGlobs: string[];
+	private lookupExtensions: Map<string, string>;
 
-	constructor(logger?: Logger) {
+	constructor(logger?: Logger, lookupFiles: string[] = DEFAULT_LOOKUP_FILES) {
 		this.logger = logger || {
 			log: (message: string) => {
 				// Only log to console in debug mode
@@ -53,6 +102,28 @@ export class CssVariableManager {
 				console.error(message);
 			}
 		};
+		this.lookupFiles = lookupFiles.length > 0 ? lookupFiles : DEFAULT_LOOKUP_FILES;
+		this.ignoreGlobs = DEFAULT_IGNORE_GLOBS;
+		this.lookupExtensions = this.buildLookupExtensions(this.lookupFiles);
+	}
+
+	private buildLookupExtensions(lookupFiles: string[]): Map<string, string> {
+		const extensions = new Map<string, string>();
+		for (const pattern of lookupFiles) {
+			for (const ext of extractExtensions(pattern)) {
+				const languageId = EXTENSION_LANGUAGE_MAP.get(ext) ?? 'css';
+				extensions.set(ext, languageId);
+			}
+		}
+		return extensions;
+	}
+
+	private resolveLanguageId(filePath: string): string | null {
+		const ext = path.extname(filePath);
+		if (!ext) {
+			return null;
+		}
+		return this.lookupExtensions.get(ext) ?? null;
 	}
 
 	/**
@@ -71,10 +142,10 @@ export class CssVariableManager {
 			const folderUri = URI.parse(folder);
 			const folderPath = folderUri.fsPath;
 
-			// Find all CSS, SCSS, SASS, LESS and HTML files
-			const files = await glob('**/*.{css,scss,sass,less,html}', {
+			// Find all CSS and HTML-like files based on lookup globs
+			const files = await glob(this.lookupFiles, {
 				cwd: folderPath,
-				ignore: ['**/node_modules/**', '**/dist/**', '**/out/**', '**/.git/**'],
+				ignore: this.ignoreGlobs,
 				absolute: true
 			});
 
@@ -91,15 +162,9 @@ export class CssVariableManager {
 				const content = fs.readFileSync(filePath, 'utf-8');
 				const fileUri = URI.file(filePath).toString();
 
-				let languageId = 'css';
-				if (filePath.endsWith('.html')) {
-					languageId = 'html';
-				} else if (filePath.endsWith('.scss')) {
-					languageId = 'scss';
-				} else if (filePath.endsWith('.sass')) {
-					languageId = 'sass';
-				} else if (filePath.endsWith('.less')) {
-					languageId = 'less';
+				const languageId = this.resolveLanguageId(filePath);
+				if (!languageId) {
+					continue;
 				}
 
 				this.parseContent(content, fileUri, languageId);
@@ -374,16 +439,8 @@ export class CssVariableManager {
 			}
 
 			const content = fs.readFileSync(filePath, 'utf-8');
-			let languageId = 'css';
-			if (filePath.endsWith('.html')) {
-				languageId = 'html';
-			} else if (filePath.endsWith('.scss')) {
-				languageId = 'scss';
-			} else if (filePath.endsWith('.sass')) {
-				languageId = 'sass';
-			} else if (filePath.endsWith('.less')) {
-				languageId = 'less';
-			} else if (!filePath.endsWith('.css')) {
+			const languageId = this.resolveLanguageId(filePath);
+			if (!languageId) {
 				// Skip unsupported file types
 				return;
 			}
