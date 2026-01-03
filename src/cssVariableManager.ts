@@ -92,7 +92,6 @@ export class CssVariableManager {
 	constructor(
 		logger?: Logger,
 		lookupFiles?: string[],
-		ignoreGlobs?: string[],
 		hasLookupOverride: boolean = false
 	) {
 		this.logger = logger || {
@@ -108,11 +107,7 @@ export class CssVariableManager {
 			}
 		};
 		this.lookupFiles = lookupFiles && lookupFiles.length > 0 ? lookupFiles : DEFAULT_LOOKUP_FILES;
-		if (ignoreGlobs && ignoreGlobs.length > 0) {
-			this.ignoreGlobs = ignoreGlobs;
-		} else {
-			this.ignoreGlobs = hasLookupOverride ? [] : DEFAULT_IGNORE_GLOBS;
-		}
+		this.ignoreGlobs = hasLookupOverride ? [] : DEFAULT_IGNORE_GLOBS;
 		this.lookupExtensions = this.buildLookupExtensions(this.lookupFiles);
 	}
 
