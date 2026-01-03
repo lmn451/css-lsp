@@ -3,13 +3,119 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const node_1 = require("vscode-languageserver/node");
 const vscode_languageserver_textdocument_1 = require("vscode-languageserver-textdocument");
+const path = require("path");
+const vscode_uri_1 = require("vscode-uri");
 const cssVariableManager_1 = require("./cssVariableManager");
 const specificity_1 = require("./specificity");
 const colorService_1 = require("./colorService");
 // Parse command-line arguments
 const args = process.argv.slice(2);
-const ENABLE_COLOR_PROVIDER = !args.includes('--no-color-preview');
-const COLOR_ONLY_ON_VARIABLES = args.includes('--color-only-variables') || process.env.CSS_LSP_COLOR_ONLY_VARIABLES === '1';
+function getArgValue(name) {
+    const flag = `--${name}`;
+    const directIndex = args.indexOf(flag);
+    if (directIndex !== -1) {
+        const candidate = args[directIndex + 1];
+        if (candidate && !candidate.startsWith("-")) {
+            return candidate;
+        }
+        return null;
+    }
+    const prefix = `${flag}=`;
+    const withEquals = args.find((arg) => arg.startsWith(prefix));
+    if (withEquals) {
+        return withEquals.slice(prefix.length);
+    }
+    return null;
+}
+function parseOptionalInt(value) {
+    if (!value) {
+        return null;
+    }
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isNaN(parsed)) {
+        return null;
+    }
+    return parsed;
+}
+function normalizePathDisplayMode(value) {
+    if (!value) {
+        return null;
+    }
+    switch (value.toLowerCase()) {
+        case "relative":
+            return "relative";
+        case "absolute":
+            return "absolute";
+        case "abbreviated":
+        case "abbr":
+        case "fish":
+            return "abbreviated";
+        default:
+            return null;
+    }
+}
+function parsePathDisplay(value) {
+    if (!value) {
+        return { mode: null, abbrevLength: null };
+    }
+    const [modePart, lengthPart] = value.split(":", 2);
+    const mode = normalizePathDisplayMode(modePart);
+    const abbrevLength = parseOptionalInt(lengthPart);
+    return { mode, abbrevLength };
+}
+function splitLookupList(value) {
+    return value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+}
+function resolveLookupFiles(argv) {
+    const cliFiles = [];
+    for (let i = 0; i < argv.length; i++) {
+        const arg = argv[i];
+        if (arg === "--lookup-files" && argv[i + 1]) {
+            cliFiles.push(...splitLookupList(argv[i + 1]));
+            i++;
+            continue;
+        }
+        if (arg.startsWith("--lookup-files=")) {
+            cliFiles.push(...splitLookupList(arg.slice("--lookup-files=".length)));
+            continue;
+        }
+        if (arg === "--lookup-file" && argv[i + 1]) {
+            cliFiles.push(argv[i + 1]);
+            i++;
+            continue;
+        }
+        if (arg.startsWith("--lookup-file=")) {
+            cliFiles.push(arg.slice("--lookup-file=".length));
+        }
+    }
+    if (cliFiles.length > 0) {
+        return cliFiles;
+    }
+    const envValue = process.env.CSS_LSP_LOOKUP_FILES;
+    if (envValue) {
+        const envFiles = splitLookupList(envValue);
+        if (envFiles.length > 0) {
+            return envFiles;
+        }
+    }
+    return undefined;
+}
+const ENABLE_COLOR_PROVIDER = !args.includes("--no-color-preview");
+const COLOR_ONLY_ON_VARIABLES = args.includes("--color-only-variables") ||
+    process.env.CSS_LSP_COLOR_ONLY_VARIABLES === "1";
+const LOOKUP_FILES = resolveLookupFiles(args);
+const pathDisplayArg = getArgValue("path-display");
+const pathDisplayEnv = process.env.CSS_LSP_PATH_DISPLAY;
+const parsedPathDisplay = parsePathDisplay(pathDisplayArg ?? pathDisplayEnv);
+const PATH_DISPLAY_MODE = parsedPathDisplay.mode ?? "relative";
+const pathDisplayLengthArg = getArgValue("path-display-length");
+const pathDisplayLengthEnv = process.env.CSS_LSP_PATH_DISPLAY_LENGTH;
+const abbrevLengthRaw = parseOptionalInt(pathDisplayLengthArg ?? pathDisplayLengthEnv) ??
+    parsedPathDisplay.abbrevLength;
+const PATH_DISPLAY_ABBREV_LENGTH = Math.max(0, abbrevLengthRaw ?? 1);
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
 const connection = (0, node_1.createConnection)(node_1.ProposedFeatures.all);
@@ -20,14 +126,59 @@ function logDebug(label, payload) {
         connection.console.log(message);
     }
 }
+function toNormalizedFsPath(uri) {
+    try {
+        const fsPath = vscode_uri_1.URI.parse(uri).fsPath;
+        return fsPath ? path.normalize(fsPath) : null;
+    }
+    catch {
+        return null;
+    }
+}
+function updateWorkspaceFolderPaths(folders) {
+    if (!folders) {
+        workspaceFolderPaths = [];
+        return;
+    }
+    const paths = folders
+        .map((folder) => toNormalizedFsPath(folder.uri))
+        .filter((folderPath) => Boolean(folderPath));
+    workspaceFolderPaths = paths.toSorted((a, b) => b.length - a.length);
+}
+function formatUriForDisplay(uri) {
+    const fsPath = toNormalizedFsPath(uri);
+    if (!fsPath) {
+        return uri;
+    }
+    const roots = workspaceFolderPaths.length
+        ? workspaceFolderPaths
+        : rootFolderPath
+            ? [rootFolderPath]
+            : [];
+    let bestRelative = null;
+    for (const root of roots) {
+        const relativePath = path.relative(root, fsPath);
+        if (!relativePath ||
+            relativePath.startsWith("..") ||
+            path.isAbsolute(relativePath)) {
+            continue;
+        }
+        if (!bestRelative || relativePath.length < bestRelative.length) {
+            bestRelative = relativePath;
+        }
+    }
+    return bestRelative || fsPath;
+}
 // Create a simple text document manager.
 const documents = new node_1.TextDocuments(vscode_languageserver_textdocument_1.TextDocument);
-const cssVariableManager = new cssVariableManager_1.CssVariableManager(connection.console);
+const cssVariableManager = new cssVariableManager_1.CssVariableManager(connection.console, LOOKUP_FILES);
 let hasConfigurationCapability = false;
 let hasWorkspaceFolderCapability = false;
 let hasDiagnosticRelatedInformationCapability = false;
+let workspaceFolderPaths = [];
+let rootFolderPath = null;
 connection.onInitialize((params) => {
-    logDebug('initialize', {
+    logDebug("initialize", {
         rootUri: params.rootUri,
         // rootPath is deprecated and optional in InitializeParams
         rootPath: params.rootPath,
@@ -42,13 +193,25 @@ connection.onInitialize((params) => {
     hasDiagnosticRelatedInformationCapability = !!(capabilities.textDocument &&
         capabilities.textDocument.publishDiagnostics &&
         capabilities.textDocument.publishDiagnostics.relatedInformation);
+    if (params.rootUri) {
+        try {
+            rootFolderPath = path.normalize(vscode_uri_1.URI.parse(params.rootUri).fsPath);
+        }
+        catch {
+            rootFolderPath = null;
+        }
+    }
+    else if (params.rootPath) {
+        rootFolderPath = path.normalize(params.rootPath);
+    }
+    updateWorkspaceFolderPaths(params.workspaceFolders || undefined);
     const result = {
         capabilities: {
             textDocumentSync: node_1.TextDocumentSyncKind.Incremental,
             // Tell the client that this server supports code completion.
             completionProvider: {
                 resolveProvider: true,
-                triggerCharacters: ['-']
+                triggerCharacters: ["-"],
             },
             definitionProvider: true,
             hoverProvider: true,
@@ -56,14 +219,14 @@ connection.onInitialize((params) => {
             renameProvider: true,
             documentSymbolProvider: true,
             workspaceSymbolProvider: true,
-            colorProvider: ENABLE_COLOR_PROVIDER
-        }
+            colorProvider: ENABLE_COLOR_PROVIDER,
+        },
     };
     if (hasWorkspaceFolderCapability) {
         result.capabilities.workspace = {
             workspaceFolders: {
-                supported: true
-            }
+                supported: true,
+            },
         };
     }
     return result;
@@ -74,15 +237,19 @@ connection.onInitialized(async () => {
         connection.client.register(node_1.DidChangeConfigurationNotification.type, undefined);
     }
     if (hasWorkspaceFolderCapability) {
-        connection.workspace.onDidChangeWorkspaceFolders(_event => {
-            connection.console.log('Workspace folder change event received.');
+        connection.workspace.onDidChangeWorkspaceFolders((_event) => {
+            connection.console.log("Workspace folder change event received.");
+            void connection.workspace.getWorkspaceFolders().then((folders) => {
+                updateWorkspaceFolderPaths(folders || undefined);
+            });
         });
     }
     // Scan workspace for CSS variables on initialization with progress reporting
     const workspaceFolders = await connection.workspace.getWorkspaceFolders();
     if (workspaceFolders) {
-        connection.console.log('Scanning workspace for CSS variables...');
-        const folderUris = workspaceFolders.map(f => f.uri);
+        updateWorkspaceFolderPaths(workspaceFolders || undefined);
+        connection.console.log("Scanning workspace for CSS variables...");
+        const folderUris = workspaceFolders.map((f) => f.uri);
         // Scan with progress callback that logs to console
         let lastLoggedPercentage = 0;
         await cssVariableManager.scanWorkspace(folderUris, (current, total) => {
@@ -103,7 +270,7 @@ const defaultSettings = { maxNumberOfProblems: 1000 };
 let globalSettings = defaultSettings;
 // Cache the settings of all open documents
 const documentSettings = new Map();
-connection.onDidChangeConfiguration(change => {
+connection.onDidChangeConfiguration((change) => {
     if (hasConfigurationCapability) {
         // Reset all cached document settings
         documentSettings.clear();
@@ -122,7 +289,7 @@ function getDocumentSettings(resource) {
     if (!result) {
         result = connection.workspace.getConfiguration({
             scopeUri: resource,
-            section: 'cssVariableLsp'
+            section: "cssVariableLsp",
         });
         documentSettings.set(resource, result);
     }
@@ -143,7 +310,7 @@ const validationTimeouts = new Map();
 // when the text document first opened or when its content has changed.
 // Note: We don't need a separate onDidOpen handler because onDidChangeContent
 // already fires when a document is first opened, avoiding double-parsing.
-documents.onDidChangeContent(change => {
+documents.onDidChangeContent((change) => {
     // Parse immediately (needed for completion/hover)
     cssVariableManager.parseDocument(change.document);
     // Debounce validation to avoid excessive diagnostic updates while typing
@@ -161,7 +328,6 @@ documents.onDidChangeContent(change => {
     validationTimeouts.set(uri, timeout);
 });
 async function validateTextDocument(textDocument) {
-    const settings = await getDocumentSettings(textDocument.uri);
     const text = textDocument.getText();
     const diagnostics = [];
     // Find all var(--variable) usages
@@ -178,10 +344,10 @@ async function validateTextDocument(textDocument) {
                 severity: node_1.DiagnosticSeverity.Warning,
                 range: {
                     start: startPos,
-                    end: endPos
+                    end: endPos,
                 },
                 message: `CSS variable '${variableName}' is not defined in the workspace`,
-                source: 'css-variable-lsp'
+                source: "css-variable-lsp",
             };
             if (hasDiagnosticRelatedInformationCapability) {
                 diagnostic.relatedInformation = [];
@@ -194,8 +360,8 @@ async function validateTextDocument(textDocument) {
 }
 connection.onDidChangeWatchedFiles(async (change) => {
     // Monitored files have changed in the client
-    connection.console.log('Received file change event');
-    logDebug('didChangeWatchedFiles', change);
+    connection.console.log("Received file change event");
+    logDebug("didChangeWatchedFiles", change);
     for (const fileEvent of change.changes) {
         if (fileEvent.type === node_1.FileChangeType.Deleted) {
             cssVariableManager.removeFile(fileEvent.uri);
@@ -225,26 +391,32 @@ function getPropertyNameFromContext(beforeCursor) {
     let lastBracePos = -1;
     for (let i = beforeCursor.length - 1; i >= 0; i--) {
         const char = beforeCursor[i];
-        if (char === ')')
+        if (char === ")")
             inParens++;
-        else if (char === '(') {
+        else if (char === "(") {
             inParens--;
             if (inParens < 0)
                 break;
         }
-        else if (char === '}')
+        else if (char === "}")
             inBraces++;
-        else if (char === '{') {
+        else if (char === "{") {
             inBraces--;
             if (inBraces < 0) {
                 lastBracePos = i;
                 break;
             }
         }
-        else if (char === ':' && inParens === 0 && inBraces === 0 && lastColonPos === -1) {
+        else if (char === ":" &&
+            inParens === 0 &&
+            inBraces === 0 &&
+            lastColonPos === -1) {
             lastColonPos = i;
         }
-        else if (char === ';' && inParens === 0 && inBraces === 0 && lastSemicolonPos === -1) {
+        else if (char === ";" &&
+            inParens === 0 &&
+            inBraces === 0 &&
+            lastSemicolonPos === -1) {
             lastSemicolonPos = i;
         }
     }
@@ -268,65 +440,116 @@ function scoreVariableRelevance(varName, propertyName) {
     }
     const lowerVarName = varName.toLowerCase();
     // Color-related properties
-    const colorProperties = ['color', 'background-color', 'background', 'border-color', 'outline-color', 'text-decoration-color', 'fill', 'stroke'];
+    const colorProperties = [
+        "color",
+        "background-color",
+        "background",
+        "border-color",
+        "outline-color",
+        "text-decoration-color",
+        "fill",
+        "stroke",
+    ];
     if (colorProperties.includes(propertyName)) {
         // High relevance: variable name contains color-related keywords
-        if (lowerVarName.includes('color') || lowerVarName.includes('bg') || lowerVarName.includes('background') ||
-            lowerVarName.includes('primary') || lowerVarName.includes('secondary') || lowerVarName.includes('accent') ||
-            lowerVarName.includes('text') || lowerVarName.includes('border') || lowerVarName.includes('link')) {
+        if (lowerVarName.includes("color") ||
+            lowerVarName.includes("bg") ||
+            lowerVarName.includes("background") ||
+            lowerVarName.includes("primary") ||
+            lowerVarName.includes("secondary") ||
+            lowerVarName.includes("accent") ||
+            lowerVarName.includes("text") ||
+            lowerVarName.includes("border") ||
+            lowerVarName.includes("link")) {
             return 10;
         }
         // Low relevance for non-color variables
-        if (lowerVarName.includes('spacing') || lowerVarName.includes('margin') || lowerVarName.includes('padding') ||
-            lowerVarName.includes('size') || lowerVarName.includes('width') || lowerVarName.includes('height') ||
-            lowerVarName.includes('font') || lowerVarName.includes('weight') || lowerVarName.includes('radius')) {
+        if (lowerVarName.includes("spacing") ||
+            lowerVarName.includes("margin") ||
+            lowerVarName.includes("padding") ||
+            lowerVarName.includes("size") ||
+            lowerVarName.includes("width") ||
+            lowerVarName.includes("height") ||
+            lowerVarName.includes("font") ||
+            lowerVarName.includes("weight") ||
+            lowerVarName.includes("radius")) {
             return 0;
         }
         // Medium relevance: might be a color
         return 5;
     }
     // Spacing-related properties
-    const spacingProperties = ['margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
-        'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
-        'gap', 'row-gap', 'column-gap'];
+    const spacingProperties = [
+        "margin",
+        "margin-top",
+        "margin-right",
+        "margin-bottom",
+        "margin-left",
+        "padding",
+        "padding-top",
+        "padding-right",
+        "padding-bottom",
+        "padding-left",
+        "gap",
+        "row-gap",
+        "column-gap",
+    ];
     if (spacingProperties.includes(propertyName)) {
-        if (lowerVarName.includes('spacing') || lowerVarName.includes('margin') || lowerVarName.includes('padding') ||
-            lowerVarName.includes('gap')) {
+        if (lowerVarName.includes("spacing") ||
+            lowerVarName.includes("margin") ||
+            lowerVarName.includes("padding") ||
+            lowerVarName.includes("gap")) {
             return 10;
         }
-        if (lowerVarName.includes('color') || lowerVarName.includes('bg') || lowerVarName.includes('background')) {
+        if (lowerVarName.includes("color") ||
+            lowerVarName.includes("bg") ||
+            lowerVarName.includes("background")) {
             return 0;
         }
         return 5;
     }
     // Size-related properties
-    const sizeProperties = ['width', 'height', 'max-width', 'max-height', 'min-width', 'min-height', 'font-size'];
+    const sizeProperties = [
+        "width",
+        "height",
+        "max-width",
+        "max-height",
+        "min-width",
+        "min-height",
+        "font-size",
+    ];
     if (sizeProperties.includes(propertyName)) {
-        if (lowerVarName.includes('width') || lowerVarName.includes('height') || lowerVarName.includes('size')) {
+        if (lowerVarName.includes("width") ||
+            lowerVarName.includes("height") ||
+            lowerVarName.includes("size")) {
             return 10;
         }
-        if (lowerVarName.includes('color') || lowerVarName.includes('bg') || lowerVarName.includes('background')) {
+        if (lowerVarName.includes("color") ||
+            lowerVarName.includes("bg") ||
+            lowerVarName.includes("background")) {
             return 0;
         }
         return 5;
     }
     // Border-radius properties
-    if (propertyName.includes('radius')) {
-        if (lowerVarName.includes('radius') || lowerVarName.includes('rounded')) {
+    if (propertyName.includes("radius")) {
+        if (lowerVarName.includes("radius") || lowerVarName.includes("rounded")) {
             return 10;
         }
-        if (lowerVarName.includes('color') || lowerVarName.includes('bg') || lowerVarName.includes('background')) {
+        if (lowerVarName.includes("color") ||
+            lowerVarName.includes("bg") ||
+            lowerVarName.includes("background")) {
             return 0;
         }
         return 5;
     }
     // Font-related properties
-    const fontProperties = ['font-family', 'font-weight', 'font-style'];
+    const fontProperties = ["font-family", "font-weight", "font-style"];
     if (fontProperties.includes(propertyName)) {
-        if (lowerVarName.includes('font')) {
+        if (lowerVarName.includes("font")) {
             return 10;
         }
-        if (lowerVarName.includes('color') || lowerVarName.includes('spacing')) {
+        if (lowerVarName.includes("color") || lowerVarName.includes("spacing")) {
             return 0;
         }
         return 5;
@@ -359,26 +582,32 @@ function isInCssValueContext(document, position) {
     for (let i = beforeCursor.length - 1; i >= 0; i--) {
         const char = beforeCursor[i];
         // Track nesting (scanning backwards)
-        if (char === ')')
+        if (char === ")")
             inParens++;
-        else if (char === '(') {
+        else if (char === "(") {
             inParens--;
             if (inParens < 0)
                 break; // We've left the current context
         }
-        else if (char === '}')
+        else if (char === "}")
             inBraces++;
-        else if (char === '{') {
+        else if (char === "{") {
             inBraces--;
             if (inBraces < 0) {
                 lastBracePos = i;
                 break; // Found the opening brace of our block
             }
         }
-        else if (char === ':' && inParens === 0 && inBraces === 0 && lastColonPos === -1) {
+        else if (char === ":" &&
+            inParens === 0 &&
+            inBraces === 0 &&
+            lastColonPos === -1) {
             lastColonPos = i;
         }
-        else if (char === ';' && inParens === 0 && inBraces === 0 && lastSemicolonPos === -1) {
+        else if (char === ";" &&
+            inParens === 0 &&
+            inBraces === 0 &&
+            lastSemicolonPos === -1) {
             lastSemicolonPos = i;
         }
     }
@@ -416,19 +645,19 @@ connection.onCompletion((textDocumentPosition) => {
     const variables = cssVariableManager.getAllVariables();
     // Deduplicate by name
     const uniqueVars = new Map();
-    variables.forEach(v => {
+    variables.forEach((v) => {
         if (!uniqueVars.has(v.name)) {
             uniqueVars.set(v.name, v);
         }
     });
     // Score and filter variables based on property context
-    const scoredVars = Array.from(uniqueVars.values()).map(v => ({
+    const scoredVars = Array.from(uniqueVars.values()).map((v) => ({
         variable: v,
-        score: scoreVariableRelevance(v.name, propertyName)
+        score: scoreVariableRelevance(v.name, propertyName),
     }));
     // Filter out score 0 (not relevant) and sort by score (higher first)
     const filteredAndSorted = scoredVars
-        .filter(sv => sv.score !== 0)
+        .filter((sv) => sv.score !== 0)
         .sort((a, b) => {
         // Sort by score (descending)
         if (a.score !== b.score) {
@@ -437,11 +666,11 @@ connection.onCompletion((textDocumentPosition) => {
         // Same score: alphabetical order
         return a.variable.name.localeCompare(b.variable.name);
     });
-    return filteredAndSorted.map(sv => ({
+    return filteredAndSorted.map((sv) => ({
         label: sv.variable.name,
         kind: node_1.CompletionItemKind.Variable,
         detail: sv.variable.value,
-        documentation: `Defined in ${sv.variable.uri}`
+        documentation: `Defined in ${formatUriForDisplay(sv.variable.uri)}`,
     }));
 });
 // This handler resolves additional information for the item selected in
@@ -464,17 +693,19 @@ connection.onHover((params) => {
         return undefined;
     }
     const word = left[0] + right[0];
-    if (word.startsWith('--')) {
+    if (word.startsWith("--")) {
         const variables = cssVariableManager.getVariables(word);
         if (variables.length === 0) {
             return undefined;
         }
         // Get all usages to find context if hovering over a usage
         const usages = cssVariableManager.getVariableUsages(word);
-        const hoverUsage = usages.find(u => document.positionAt(document.offsetAt(u.range.start)) === params.position ||
-            (offset >= document.offsetAt(u.range.start) && offset <= document.offsetAt(u.range.end)));
-        const usageContext = hoverUsage?.usageContext || '';
-        const isInlineStyle = usageContext === 'inline-style';
+        const hoverUsage = usages.find((u) => document.positionAt(document.offsetAt(u.range.start)) ===
+            params.position ||
+            (offset >= document.offsetAt(u.range.start) &&
+                offset <= document.offsetAt(u.range.end)));
+        const usageContext = hoverUsage?.usageContext || "";
+        const isInlineStyle = usageContext === "inline-style";
         // Get DOM tree and node if available (for HTML documents)
         const domTree = cssVariableManager.getDOMTree(document.uri);
         const domNode = hoverUsage?.domNode;
@@ -515,12 +746,13 @@ connection.onHover((params) => {
         }
         else {
             // Multiple definitions - show full cascade
-            hoverText += '**Definitions** (CSS cascade order):\n\n';
+            hoverText += "**Definitions** (CSS cascade order):\n\n";
             sortedVars.forEach((v, index) => {
                 const spec = (0, specificity_1.calculateSpecificity)(v.selector);
                 // Use DOM-aware matching if available, otherwise fall back to simple matching
-                const isApplicable = usageContext ?
-                    (0, specificity_1.matchesContext)(v.selector, usageContext, domTree, domNode) : true;
+                const isApplicable = usageContext
+                    ? (0, specificity_1.matchesContext)(v.selector, usageContext, domTree, domNode)
+                    : true;
                 const isWinner = index === 0 && (isApplicable || isInlineStyle);
                 let line = `${index + 1}. \`${v.value}\``;
                 if (v.important) {
@@ -532,39 +764,39 @@ connection.onHover((params) => {
                 }
                 if (isWinner && usageContext) {
                     if (v.important) {
-                        line += ' ✓ **Wins (!important)**';
+                        line += " ✓ **Wins (!important)**";
                     }
                     else if (isInlineStyle) {
-                        line += ' ✓ **Would apply (inline style)**';
+                        line += " ✓ **Would apply (inline style)**";
                     }
                     else if (domTree && domNode) {
-                        line += ' ✓ **Applies (DOM match)**';
+                        line += " ✓ **Applies (DOM match)**";
                     }
                     else {
-                        line += ' ✓ **Applies here**';
+                        line += " ✓ **Applies here**";
                     }
                 }
                 else if (!isApplicable && usageContext && !isInlineStyle) {
-                    line += ' _(selector doesn\'t match)_';
+                    line += " _(selector doesn't match)_";
                 }
                 else if (index > 0 && usageContext) {
                     // Explain why it doesn't win
                     const winner = sortedVars[0];
                     if (winner.important && !v.important) {
-                        line += ' _(overridden by !important)_';
+                        line += " _(overridden by !important)_";
                     }
                     else {
                         const winnerSpec = (0, specificity_1.calculateSpecificity)(winner.selector);
                         const cmp = (0, specificity_1.compareSpecificity)(winnerSpec, spec);
                         if (cmp > 0) {
-                            line += ' _(lower specificity)_';
+                            line += " _(lower specificity)_";
                         }
                         else if (cmp === 0) {
-                            line += ' _(earlier in source)_';
+                            line += " _(earlier in source)_";
                         }
                     }
                 }
-                hoverText += line + '\n';
+                hoverText += line + "\n";
             });
             if (usageContext) {
                 if (isInlineStyle) {
@@ -580,9 +812,9 @@ connection.onHover((params) => {
         }
         return {
             contents: {
-                kind: 'markdown',
-                value: hoverText
-            }
+                kind: "markdown",
+                value: hoverText,
+            },
         };
     }
     return undefined;
@@ -600,12 +832,12 @@ connection.onDefinition((params) => {
         return undefined;
     }
     const word = left[0] + right[0];
-    if (word.startsWith('--')) {
+    if (word.startsWith("--")) {
         const variables = cssVariableManager.getVariables(word);
         if (variables.length > 0) {
             return {
                 uri: variables[0].uri,
-                range: variables[0].range
+                range: variables[0].range,
             };
         }
     }
@@ -625,9 +857,9 @@ connection.onReferences((params) => {
         return [];
     }
     const word = left[0] + right[0];
-    if (word.startsWith('--')) {
+    if (word.startsWith("--")) {
         const references = cssVariableManager.getReferences(word);
-        return references.map(ref => node_1.Location.create(ref.uri, ref.range));
+        return references.map((ref) => node_1.Location.create(ref.uri, ref.range));
     }
     return [];
 });
@@ -645,7 +877,7 @@ connection.onRenameRequest((params) => {
         return null;
     }
     const word = left[0] + right[0];
-    if (word.startsWith('--')) {
+    if (word.startsWith("--")) {
         const references = cssVariableManager.getReferences(word);
         const changes = {};
         for (const ref of references) {
@@ -656,9 +888,9 @@ connection.onRenameRequest((params) => {
             // For usages in var(), replace just the variable name part
             const edit = {
                 range: ref.range,
-                newText: 'value' in ref
+                newText: "value" in ref
                     ? `${params.newName}: ${ref.value};` // Definition
-                    : `var(${params.newName})` // Usage
+                    : `var(${params.newName})`, // Usage
             };
             changes[ref.uri].push(edit);
         }
@@ -673,16 +905,16 @@ connection.onDocumentSymbol((params) => {
         return [];
     }
     const variables = cssVariableManager.getDocumentDefinitions(document.uri);
-    return variables.map(v => node_1.DocumentSymbol.create(v.name, v.value, node_1.SymbolKind.Variable, v.range, v.range));
+    return variables.map((v) => node_1.DocumentSymbol.create(v.name, v.value, node_1.SymbolKind.Variable, v.range, v.range));
 });
 // Workspace symbols handler
 connection.onWorkspaceSymbol((params) => {
     const query = params.query.toLowerCase();
     const allVariables = cssVariableManager.getAllDefinitions();
     const filtered = query
-        ? allVariables.filter(v => v.name.toLowerCase().includes(query))
+        ? allVariables.filter((v) => v.name.toLowerCase().includes(query))
         : allVariables;
-    return filtered.map(v => node_1.WorkspaceSymbol.create(v.name, node_1.SymbolKind.Variable, v.uri, v.range));
+    return filtered.map((v) => node_1.WorkspaceSymbol.create(v.name, node_1.SymbolKind.Variable, v.uri, v.range));
 });
 // Color Provider: Document Colors
 connection.onDocumentColor((params) => {
@@ -707,24 +939,27 @@ connection.onDocumentColor((params) => {
                 if (def.valueRange) {
                     colors.push({
                         range: def.valueRange,
-                        color: color
+                        color: color,
                     });
                 }
                 else {
                     // Fallback: find the value within the declaration text
                     // This handles cases where valueRange wasn't captured (shouldn't happen normally)
                     const defText = text.substring(document.offsetAt(def.range.start), document.offsetAt(def.range.end));
-                    const colonIndex = defText.indexOf(':');
+                    const colonIndex = defText.indexOf(":");
                     if (colonIndex !== -1) {
                         const afterColon = defText.substring(colonIndex + 1);
                         const valueIndex = afterColon.indexOf(def.value.trim());
                         if (valueIndex !== -1) {
-                            const absoluteValueStart = document.offsetAt(def.range.start) + colonIndex + 1 + valueIndex;
+                            const absoluteValueStart = document.offsetAt(def.range.start) +
+                                colonIndex +
+                                1 +
+                                valueIndex;
                             const start = document.positionAt(absoluteValueStart);
                             const end = document.positionAt(absoluteValueStart + def.value.trim().length);
                             colors.push({
                                 range: { start, end },
-                                color: color
+                                color: color,
                             });
                         }
                     }
@@ -744,7 +979,7 @@ connection.onDocumentColor((params) => {
             const end = document.positionAt(match.index + match[0].length);
             colors.push({
                 range: { start, end },
-                color: color
+                color: color,
             });
         }
     }

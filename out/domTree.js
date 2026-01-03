@@ -7,6 +7,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.DOMTree = void 0;
 const node_html_parser_1 = require("node-html-parser");
 class DOMTree {
+    root;
+    htmlText;
     constructor(htmlText) {
         this.htmlText = htmlText;
         this.root = (0, node_html_parser_1.parse)(htmlText, {
@@ -44,7 +46,6 @@ class DOMTree {
         return {
             tagName: node.tagName,
             id: node.id,
-            classes: [...node.classList.values()],
             element: node,
         };
     }
@@ -76,17 +77,9 @@ class DOMTree {
         try {
             const elements = this.root.querySelectorAll(selector);
             return elements.map((el) => {
-                // Manually extract classes from DOMTokenList
-                const classes = [];
-                for (let i = 0; i < el.classList.length; i++) {
-                    const className = el.classList.value[i];
-                    if (className)
-                        classes.push(className);
-                }
                 return {
                     tagName: el.tagName,
                     id: el.id,
-                    classes: classes,
                     element: el,
                 };
             });

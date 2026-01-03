@@ -11,11 +11,56 @@ const domTree_1 = require("./domTree");
 const node_html_parser_1 = require("node-html-parser");
 const colorService_1 = require("./colorService");
 const specificity_1 = require("./specificity");
+const path = require("path");
+const DEFAULT_LOOKUP_FILES = [
+    "**/*.css",
+    "**/*.scss",
+    "**/*.sass",
+    "**/*.less",
+    "**/*.html",
+    "**/*.vue",
+    "**/*.svelte",
+    "**/*.astro",
+    "**/*.ripple",
+];
+const DEFAULT_IGNORE_GLOBS = [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/out/**",
+    "**/.git/**",
+];
+const EXTENSION_LANGUAGE_MAP = new Map([
+    [".css", "css"],
+    [".scss", "scss"],
+    [".sass", "sass"],
+    [".less", "less"],
+    [".html", "html"],
+    [".vue", "html"],
+    [".svelte", "html"],
+    [".astro", "html"],
+    [".ripple", "html"],
+]);
+function extractExtensions(pattern) {
+    const braceMatch = pattern.match(/\{([^}]+)\}/);
+    if (braceMatch) {
+        return braceMatch[1]
+            .split(",")
+            .map((ext) => ext.trim())
+            .filter(Boolean)
+            .map((ext) => (ext.startsWith(".") ? ext : `.${ext}`));
+    }
+    const ext = path.extname(pattern);
+    return ext ? [ext] : [];
+}
 class CssVariableManager {
-    constructor(logger) {
-        this.variables = new Map();
-        this.usages = new Map();
-        this.domTrees = new Map(); // URI -> DOM tree
+    variables = new Map();
+    usages = new Map();
+    domTrees = new Map(); // URI -> DOM tree
+    logger;
+    lookupFiles;
+    ignoreGlobs;
+    lookupExtensions;
+    constructor(logger, lookupFiles) {
         this.logger = logger || {
             log: (message) => {
                 // Only log to console in debug mode
@@ -26,8 +71,29 @@ class CssVariableManager {
             error: (message) => {
                 // Always log errors
                 console.error(message);
-            }
+            },
         };
+        this.lookupFiles =
+            lookupFiles && lookupFiles.length > 0 ? lookupFiles : DEFAULT_LOOKUP_FILES;
+        this.ignoreGlobs = DEFAULT_IGNORE_GLOBS;
+        this.lookupExtensions = this.buildLookupExtensions(this.lookupFiles);
+    }
+    buildLookupExtensions(lookupFiles) {
+        const extensions = new Map();
+        for (const pattern of lookupFiles) {
+            for (const ext of extractExtensions(pattern)) {
+                const languageId = EXTENSION_LANGUAGE_MAP.get(ext) ?? "css";
+                extensions.set(ext, languageId);
+            }
+        }
+        return extensions;
+    }
+    resolveLanguageId(filePath) {
+        const ext = path.extname(filePath);
+        if (!ext) {
+            return null;
+        }
+        return this.lookupExtensions.get(ext) ?? null;
     }
     /**
      * Scan all CSS and HTML files in the workspace
@@ -40,11 +106,11 @@ class CssVariableManager {
         for (const folder of workspaceFolders) {
             const folderUri = vscode_uri_1.URI.parse(folder);
             const folderPath = folderUri.fsPath;
-            // Find all CSS, SCSS, SASS, LESS and HTML files
-            const files = await (0, glob_1.glob)('**/*.{css,scss,sass,less,html}', {
+            // Find all CSS and HTML-like files based on lookup globs
+            const files = await (0, glob_1.glob)(this.lookupFiles, {
                 cwd: folderPath,
-                ignore: ['**/node_modules/**', '**/dist/**', '**/out/**', '**/.git/**'],
-                absolute: true
+                ignore: this.ignoreGlobs,
+                absolute: true,
             });
             this.logger.log(`[css-lsp] Scanned ${folder}: found ${files.length} files`);
             allFiles.push(...files);
@@ -54,20 +120,11 @@ class CssVariableManager {
         // Parse each file with progress reporting
         for (const filePath of allFiles) {
             try {
-                const content = fs.readFileSync(filePath, 'utf-8');
+                const content = fs.readFileSync(filePath, "utf-8");
                 const fileUri = vscode_uri_1.URI.file(filePath).toString();
-                let languageId = 'css';
-                if (filePath.endsWith('.html')) {
-                    languageId = 'html';
-                }
-                else if (filePath.endsWith('.scss')) {
-                    languageId = 'scss';
-                }
-                else if (filePath.endsWith('.sass')) {
-                    languageId = 'sass';
-                }
-                else if (filePath.endsWith('.less')) {
-                    languageId = 'less';
+                const languageId = this.resolveLanguageId(filePath);
+                if (!languageId) {
+                    continue;
                 }
                 this.parseContent(content, fileUri, languageId);
             }
@@ -76,7 +133,8 @@ class CssVariableManager {
             }
             processedFiles++;
             // Report progress every 10 files or at the end
-            if (onProgress && (processedFiles % 10 === 0 || processedFiles === totalFiles)) {
+            if (onProgress &&
+                (processedFiles % 10 === 0 || processedFiles === totalFiles)) {
                 onProgress(processedFiles, totalFiles);
             }
         }
@@ -88,7 +146,7 @@ class CssVariableManager {
     parseContent(text, uri, languageId) {
         // Clear existing variables and usages for this document
         this.removeFile(uri);
-        if (languageId === 'html') {
+        if (languageId === "html") {
             // Build DOM tree for HTML documents
             try {
                 const domTree = new domTree_1.DOMTree(text);
@@ -106,11 +164,11 @@ class CssVariableManager {
                         script: true,
                         noscript: true,
                         style: true, // Keep style as block text so we can extract content
-                    }
+                    },
                 });
                 const document = vscode_languageserver_textdocument_1.TextDocument.create(uri, languageId, 1, text);
                 // Parse <style> blocks
-                const styleElements = root.querySelectorAll('style');
+                const styleElements = root.querySelectorAll("style");
                 for (const styleEl of styleElements) {
                     const styleContent = styleEl.textContent;
                     if (styleContent && styleEl.range) {
@@ -118,19 +176,19 @@ class CssVariableManager {
                         // styleEl.range gives us the full element from '<style>' to '</style>'
                         // We need to find where the content starts (after the opening tag)
                         const elementText = text.substring(styleEl.range[0], styleEl.range[1]);
-                        const openingTagEnd = elementText.indexOf('>') + 1;
+                        const openingTagEnd = elementText.indexOf(">") + 1;
                         const styleStartOffset = styleEl.range[0] + openingTagEnd;
                         this.parseCssText(styleContent, uri, document, styleStartOffset);
                     }
                 }
                 // Parse inline style attributes
-                const elementsWithStyle = root.querySelectorAll('[style]');
+                const elementsWithStyle = root.querySelectorAll("[style]");
                 for (const el of elementsWithStyle) {
-                    const styleAttr = el.getAttribute('style');
+                    const styleAttr = el.getAttribute("style");
                     if (styleAttr && el.range) {
                         // Find the position of the style attribute value in the original text
                         const elementText = text.substring(el.range[0], el.range[1]);
-                        const styleAttrStart = elementText.indexOf('style');
+                        const styleAttrStart = elementText.indexOf("style");
                         if (styleAttrStart !== -1) {
                             // Find where the attribute value starts (after the opening quote)
                             const valueStart = elementText.indexOf(styleAttr, styleAttrStart);
@@ -159,14 +217,14 @@ class CssVariableManager {
                 positions: true,
                 onParseError: (error) => {
                     this.logger.log(`[css-lsp] CSS Parse Error in ${uri}: ${error.message}`);
-                }
+                },
             });
             const selectorStack = [];
             csstree.walk(ast, {
                 enter: (node) => {
-                    if (node.type === 'Rule') {
-                        let selector = '';
-                        if (node.prelude && node.prelude.type === 'Raw') {
+                    if (node.type === "Rule") {
+                        let selector = "";
+                        if (node.prelude && node.prelude.type === "Raw") {
                             // Clean up raw selector if possible, or just take it
                             selector = node.prelude.value;
                         }
@@ -175,11 +233,13 @@ class CssVariableManager {
                         }
                         selectorStack.push(selector);
                     }
-                    if (node.type === 'Declaration' && node.property.startsWith('--')) {
+                    if (node.type === "Declaration" && node.property.startsWith("--")) {
                         const name = node.property;
                         const value = csstree.generate(node.value).trim();
-                        const important = node.important === true || node.important === 'important';
-                        const selector = selectorStack.length > 0 ? selectorStack[selectorStack.length - 1] : ':root';
+                        const important = node.important === true || node.important === "important";
+                        const selector = selectorStack.length > 0
+                            ? selectorStack[selectorStack.length - 1]
+                            : ":root";
                         if (node.loc) {
                             const startPos = document.positionAt(offset + node.loc.start.offset);
                             const endPos = document.positionAt(offset + node.loc.end.offset);
@@ -205,7 +265,7 @@ class CssVariableManager {
                                 valueRange,
                                 selector,
                                 important,
-                                sourcePosition: offset + node.loc.start.offset
+                                sourcePosition: offset + node.loc.start.offset,
                             };
                             if (!this.variables.has(name)) {
                                 this.variables.set(name, []);
@@ -213,15 +273,18 @@ class CssVariableManager {
                             this.variables.get(name)?.push(variable);
                         }
                     }
-                    if (node.type === 'Function' && node.name === 'var') {
+                    if (node.type === "Function" && node.name === "var") {
                         const children = node.children;
                         if (children && children.first) {
                             const firstChild = children.first;
                             // Handle var(--name) or var(--name, fallback)
                             // In csstree, --name is an Identifier
-                            if (firstChild.type === 'Identifier' && firstChild.name.startsWith('--')) {
+                            if (firstChild.type === "Identifier" &&
+                                firstChild.name.startsWith("--")) {
                                 const name = firstChild.name;
-                                const usageContext = selectorStack.length > 0 ? selectorStack[selectorStack.length - 1] : '';
+                                const usageContext = selectorStack.length > 0
+                                    ? selectorStack[selectorStack.length - 1]
+                                    : "";
                                 if (node.loc) {
                                     const startPos = document.positionAt(offset + node.loc.start.offset);
                                     const endPos = document.positionAt(offset + node.loc.end.offset);
@@ -229,7 +292,7 @@ class CssVariableManager {
                                         name,
                                         uri,
                                         range: node_1.Range.create(startPos, endPos),
-                                        usageContext
+                                        usageContext,
                                     };
                                     if (!this.usages.has(name)) {
                                         this.usages.set(name, []);
@@ -241,10 +304,10 @@ class CssVariableManager {
                     }
                 },
                 leave: (node) => {
-                    if (node.type === 'Rule') {
+                    if (node.type === "Rule") {
                         selectorStack.pop();
                     }
-                }
+                },
             });
         }
         catch (e) {
@@ -258,19 +321,20 @@ class CssVariableManager {
     parseInlineStyle(text, uri, document, offset, attributeOffset) {
         try {
             const ast = csstree.parse(text, {
-                context: 'declarationList',
+                context: "declarationList",
                 positions: true,
                 onParseError: (error) => {
                     this.logger.log(`[css-lsp] Inline Style Parse Error in ${uri}: ${error.message}`);
-                }
+                },
             });
             csstree.walk(ast, {
                 enter: (node) => {
-                    if (node.type === 'Function' && node.name === 'var') {
+                    if (node.type === "Function" && node.name === "var") {
                         const children = node.children;
                         if (children && children.first) {
                             const firstChild = children.first;
-                            if (firstChild.type === 'Identifier' && firstChild.name.startsWith('--')) {
+                            if (firstChild.type === "Identifier" &&
+                                firstChild.name.startsWith("--")) {
                                 const name = firstChild.name;
                                 if (node.loc) {
                                     const startPos = document.positionAt(offset + node.loc.start.offset);
@@ -283,8 +347,8 @@ class CssVariableManager {
                                         name,
                                         uri,
                                         range: node_1.Range.create(startPos, endPos),
-                                        usageContext: 'inline-style',
-                                        domNode: domNode
+                                        usageContext: "inline-style",
+                                        domNode: domNode,
                                     };
                                     if (!this.usages.has(name)) {
                                         this.usages.set(name, []);
@@ -294,7 +358,7 @@ class CssVariableManager {
                             }
                         }
                     }
-                }
+                },
             });
         }
         catch (e) {
@@ -313,21 +377,9 @@ class CssVariableManager {
             if (!stat.isFile()) {
                 return;
             }
-            const content = fs.readFileSync(filePath, 'utf-8');
-            let languageId = 'css';
-            if (filePath.endsWith('.html')) {
-                languageId = 'html';
-            }
-            else if (filePath.endsWith('.scss')) {
-                languageId = 'scss';
-            }
-            else if (filePath.endsWith('.sass')) {
-                languageId = 'sass';
-            }
-            else if (filePath.endsWith('.less')) {
-                languageId = 'less';
-            }
-            else if (!filePath.endsWith('.css')) {
+            const content = fs.readFileSync(filePath, "utf-8");
+            const languageId = this.resolveLanguageId(filePath);
+            if (!languageId) {
                 // Skip unsupported file types
                 return;
             }
@@ -345,7 +397,7 @@ class CssVariableManager {
     }
     clearDocumentVariables(uri) {
         for (const [name, vars] of this.variables.entries()) {
-            const filtered = vars.filter(v => v.uri !== uri);
+            const filtered = vars.filter((v) => v.uri !== uri);
             if (filtered.length === 0) {
                 this.variables.delete(name);
             }
@@ -356,7 +408,7 @@ class CssVariableManager {
     }
     clearDocumentUsages(uri) {
         for (const [name, usgs] of this.usages.entries()) {
-            const filtered = usgs.filter(u => u.uri !== uri);
+            const filtered = usgs.filter((u) => u.uri !== uri);
             if (filtered.length === 0) {
                 this.usages.delete(name);
             }
@@ -400,7 +452,7 @@ class CssVariableManager {
      */
     getDocumentDefinitions(uri) {
         const allVars = this.getAllVariables();
-        return allVars.filter(v => v.uri === uri);
+        return allVars.filter((v) => v.uri === uri);
     }
     /**
      * Get the DOM tree for a document (if it's HTML)

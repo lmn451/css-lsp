@@ -18,51 +18,51 @@ function calculateSpecificity(selector) {
     // Remove whitespace and trim
     selector = selector.trim();
     // Handle empty or universal selector
-    if (!selector || selector === '*') {
+    if (!selector || selector === "*") {
         return { ids: 0, classes: 0, elements: 0 };
     }
     const specificity = {
         ids: 0,
         classes: 0,
-        elements: 0
+        elements: 0,
     };
     // Split by comma for selector lists, take the most specific
-    const selectors = selector.split(',');
+    const selectors = selector.split(",");
     if (selectors.length > 1) {
         // For multiple selectors, return the highest specificity
-        const specificities = selectors.map(s => calculateSpecificity(s.trim()));
+        const specificities = selectors.map((s) => calculateSpecificity(s.trim()));
         return specificities.reduce((max, curr) => compareSpecificity(curr, max) > 0 ? curr : max);
     }
     // Remove pseudo-elements first (::before, ::after) - count as elements
     const pseudoElementRegex = /::[a-z-]+/gi;
     const pseudoElements = selector.match(pseudoElementRegex) || [];
     specificity.elements += pseudoElements.length;
-    selector = selector.replace(pseudoElementRegex, '');
+    selector = selector.replace(pseudoElementRegex, "");
     // Count IDs (#id)
     const idRegex = /#[a-z0-9_-]+/gi;
     const ids = selector.match(idRegex) || [];
     specificity.ids += ids.length;
-    selector = selector.replace(idRegex, '');
+    selector = selector.replace(idRegex, "");
     // Count classes (.class)
     const classRegex = /\.[a-z0-9_-]+/gi;
     const classes = selector.match(classRegex) || [];
     specificity.classes += classes.length;
-    selector = selector.replace(classRegex, '');
+    selector = selector.replace(classRegex, "");
     // Count attribute selectors ([attr])
     // Handle quoted strings inside attributes to avoid stopping at the first ']'
     const attrRegex = /\[(?:[^\]"']|"[^"]*"|'[^']*')*\]/g;
     const attrs = selector.match(attrRegex) || [];
     specificity.classes += attrs.length;
-    selector = selector.replace(attrRegex, '');
+    selector = selector.replace(attrRegex, "");
     // Count pseudo-classes (:hover, :nth-child, etc.)
     const pseudoClassRegex = /:[a-z-]+(\([^)]*\))?/gi;
     const pseudoClasses = selector.match(pseudoClassRegex) || [];
     specificity.classes += pseudoClasses.length;
-    selector = selector.replace(pseudoClassRegex, '');
+    selector = selector.replace(pseudoClassRegex, "");
     // Count type selectors (remaining words that aren't combinators)
     // Remove combinators: >, +, ~, and whitespace
-    selector = selector.replace(/[>+~\s]/g, ' ');
-    const elements = selector.split(/\s+/).filter(s => s && s !== '*');
+    selector = selector.replace(/[>+~\s]/g, " ");
+    const elements = selector.split(/\s+/).filter((s) => s && s !== "*");
     specificity.elements += elements.length;
     return specificity;
 }
@@ -115,7 +115,7 @@ function matchesContext(definitionSelector, usageContext, domTree, domNode) {
     }
     // Fallback: Simple matching without DOM
     // :root applies to everything (universal fallback)
-    if (definitionSelector.trim() === ':root') {
+    if (definitionSelector.trim() === ":root") {
         return true;
     }
     // Exact match
@@ -128,6 +128,6 @@ function matchesContext(definitionSelector, usageContext, domTree, domNode) {
     const defParts = definitionSelector.split(/[\s>+~]/);
     const usageParts = usageContext.split(/[\s>+~]/);
     // Check if any part of the definition is in the usage
-    return defParts.some(defPart => usageParts.some(usagePart => usagePart.includes(defPart) || defPart.includes(usagePart)));
+    return defParts.some((defPart) => usageParts.some((usagePart) => usagePart.includes(defPart) || defPart.includes(usagePart)));
 }
 //# sourceMappingURL=specificity.js.map
