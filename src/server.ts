@@ -79,7 +79,7 @@ function parseOptionalInt(value: string | null | undefined): number | null {
 }
 
 function normalizePathDisplayMode(
-  value: string | null | undefined
+  value: string | null | undefined,
 ): PathDisplayMode | null {
   if (!value) {
     return null;
@@ -172,8 +172,8 @@ function formatUriForDisplay(uri: string): string {
   const roots = workspaceFolderPaths.length
     ? workspaceFolderPaths
     : rootFolderPath
-    ? [rootFolderPath]
-    : [];
+      ? [rootFolderPath]
+      : [];
 
   let bestRelative: string | null = null;
   for (const root of roots) {
@@ -270,7 +270,7 @@ connection.onInitialized(async () => {
     // Register for all configuration changes.
     connection.client.register(
       DidChangeConfigurationNotification.type,
-      undefined
+      undefined,
     );
   }
   if (hasWorkspaceFolderCapability) {
@@ -297,7 +297,7 @@ connection.onInitialized(async () => {
       // Log progress every 20% to avoid spam
       if (percentage - lastLoggedPercentage >= 20 || current === total) {
         connection.console.log(
-          `Scanning CSS files: ${current}/${total} (${percentage}%)`
+          `Scanning CSS files: ${current}/${total} (${percentage}%)`,
         );
         lastLoggedPercentage = percentage;
       }
@@ -305,7 +305,7 @@ connection.onInitialized(async () => {
 
     const totalVars = cssVariableManager.getAllVariables().length;
     connection.console.log(
-      `Workspace scan complete. Found ${totalVars} CSS variables.`
+      `Workspace scan complete. Found ${totalVars} CSS variables.`,
     );
 
     // Validate all open documents after workspace scan
@@ -514,7 +514,7 @@ function getPropertyNameFromContext(beforeCursor: string): string | null {
  */
 function scoreVariableRelevance(
   varName: string,
-  propertyName: string | null
+  propertyName: string | null,
 ): number {
   if (!propertyName) {
     return -1; // No property context, keep all variables
@@ -666,7 +666,7 @@ function scoreVariableRelevance(
  */
 function isInCssValueContext(
   document: TextDocument,
-  position: TextDocumentPositionParams["position"]
+  position: TextDocumentPositionParams["position"],
 ): boolean {
   const text = document.getText();
   const offset = document.offsetAt(position);
@@ -734,7 +734,7 @@ function isInCssValueContext(
 
   // Check for HTML style attribute: style="property: |"
   const styleAttrMatch = beforeCursor.match(
-    /style\s*=\s*["'][^"']*:\s*[^"';]*$/i
+    /style\s*=\s*["'][^"']*:\s*[^"';]*$/i,
   );
   if (styleAttrMatch) {
     return true;
@@ -795,7 +795,7 @@ connection.onCompletion(
       detail: sv.variable.value,
       documentation: `Defined in ${formatUriForDisplay(sv.variable.uri)}`,
     }));
-  }
+  },
 );
 
 // This handler resolves additional information for the item selected in
@@ -836,7 +836,7 @@ connection.onHover((params) => {
         document.positionAt(document.offsetAt(u.range.start)) ===
           params.position ||
         (offset >= document.offsetAt(u.range.start) &&
-          offset <= document.offsetAt(u.range.end))
+          offset <= document.offsetAt(u.range.end)),
     );
 
     const usageContext = hoverUsage?.usageContext || "";
@@ -885,7 +885,7 @@ connection.onHover((params) => {
       if (v.selector) {
         hoverText += `**Defined in:** \`${v.selector}\`\n`;
         hoverText += `**Specificity:** ${formatSpecificity(
-          calculateSpecificity(v.selector)
+          calculateSpecificity(v.selector),
         )}\n`;
       }
     } else {
@@ -1080,8 +1080,8 @@ connection.onDocumentSymbol((params) => {
       v.value,
       SymbolKind.Variable,
       v.range,
-      v.range
-    )
+      v.range,
+    ),
   );
 });
 
@@ -1095,7 +1095,7 @@ connection.onWorkspaceSymbol((params) => {
     : allVariables;
 
   return filtered.map((v) =>
-    WorkspaceSymbol.create(v.name, SymbolKind.Variable, v.uri, v.range)
+    WorkspaceSymbol.create(v.name, SymbolKind.Variable, v.uri, v.range),
   );
 });
 
@@ -1132,7 +1132,7 @@ connection.onDocumentColor((params) => {
           // This handles cases where valueRange wasn't captured (shouldn't happen normally)
           const defText = text.substring(
             document.offsetAt(def.range.start),
-            document.offsetAt(def.range.end)
+            document.offsetAt(def.range.end),
           );
           const colonIndex = defText.indexOf(":");
           if (colonIndex !== -1) {
@@ -1147,7 +1147,7 @@ connection.onDocumentColor((params) => {
                 valueIndex;
               const start = document.positionAt(absoluteValueStart);
               const end = document.positionAt(
-                absoluteValueStart + def.value.trim().length
+                absoluteValueStart + def.value.trim().length,
               );
               colors.push({
                 range: { start, end },
@@ -1200,19 +1200,19 @@ connection.onColorPresentation((params) => {
   // 1. Hex format (most common)
   const hexStr = formatColorAsHex(color);
   presentations.push(
-    ColorPresentation.create(hexStr, TextEdit.replace(range, hexStr))
+    ColorPresentation.create(hexStr, TextEdit.replace(range, hexStr)),
   );
 
   // 2. RGB format
   const rgbStr = formatColorAsRgb(color);
   presentations.push(
-    ColorPresentation.create(rgbStr, TextEdit.replace(range, rgbStr))
+    ColorPresentation.create(rgbStr, TextEdit.replace(range, rgbStr)),
   );
 
   // 3. HSL format
   const hslStr = formatColorAsHsl(color);
   presentations.push(
-    ColorPresentation.create(hslStr, TextEdit.replace(range, hslStr))
+    ColorPresentation.create(hslStr, TextEdit.replace(range, hslStr)),
   );
 
   return presentations;
