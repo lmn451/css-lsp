@@ -59,13 +59,13 @@ Environment variables:
 - `CSS_LSP_COLOR_ONLY_VARIABLES=1` (same as `--color-only-variables`)
 - `CSS_LSP_LOOKUP_FILES` (comma-separated glob patterns; ignored if CLI lookup flags are provided)
 - `CSS_LSP_DEBUG=1` (enable debug logging)
-- `CSS_LSP_PATH_DISPLAY=relative|absolute|abbreviated` (controls completion path formatting)
+- `CSS_LSP_PATH_DISPLAY=relative|absolute|abbreviated`
 - `CSS_LSP_PATH_DISPLAY_LENGTH=1` (same as `--path-display-length`)
-
-`abbreviated` mode shortens each directory segment (except the final one) to the configured length, matching fish-style prompt shortening. The default is `relative` with a length of `1`.
 
 Defaults:
 
+- `--path-display`: `relative`
+- `--path-display-length`: `1`
 - Lookup globs:
   - `**/*.css`
   - `**/*.scss`
@@ -82,7 +82,22 @@ Defaults:
   - `**/out/**`
   - `**/.git/**`
 
-Lookup globs accept standard glob patterns (including brace expansions like `**/*.{css,scss}`) and the default ignore list remains in effect even when lookup globs are provided.
+`abbreviated` mode shortens each directory segment (except the final one) to the configured length, matching fish-style prompt shortening. Lookup globs accept standard glob patterns (including brace expansions like `**/*.{css,scss}`) and the default ignore list remains in effect even when lookup globs are provided.
+
+### Completion Path Examples
+
+Assume a variable is defined in `/Users/you/project/src/styles/theme.css` and your workspace root is `/Users/you/project`.
+
+- `--path-display=relative` (default):
+  - `Defined in src/styles/theme.css`
+- `--path-display=absolute`:
+  - `Defined in /Users/you/project/src/styles/theme.css`
+- `--path-display=abbreviated --path-display-length=1`:
+  - `Defined in s/s/theme.css`
+- `--path-display=abbreviated --path-display-length=2`:
+  - `Defined in sr/st/theme.css`
+- `--path-display=abbreviated --path-display-length=0` (no shortening):
+  - `Defined in src/styles/theme.css`
 
 ## Cascade Awareness (Best-Effort)
 
