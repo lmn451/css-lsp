@@ -41,7 +41,7 @@ export class DOMTree {
 
   private findNodeAtPositionRecursive(
     node: ParsedNode,
-    position: number
+    position: number,
   ): DOMNodeInfo | undefined {
     if (!(node instanceof ParsedHTMLElement)) {
       return undefined;

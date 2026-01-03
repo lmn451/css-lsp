@@ -5,12 +5,14 @@ This document outlines the current limitations of the CSS Variable Language Serv
 ## ✅ What We DO Handle
 
 ### Core CSS Cascade Features
+
 - **Selector tracking**: Each variable definition tracks its CSS selector (`:root`, `div`, `.class`, etc.)
 - **CSS Specificity**: Full specificity calculation for IDs, classes, pseudo-classes, elements
 - **Usage context detection**: Tracks which selector a `var(--name)` usage appears in
 - **Context-aware hover**: Shows all definitions sorted by specificity with indicator of which applies
 
 ### Advanced CSS Features ✨
+
 - **Source order tracking**: When two selectors have equal specificity, later definitions win
 - **!important support**: `--color: red !important` is tracked and prioritized correctly in cascade
 - **Inline style parsing**: `style="--color: red"` attributes are parsed for variable definitions
@@ -24,29 +26,38 @@ This document outlines the current limitations of the CSS Variable Language Serv
 **This is the key limitation you're asking about!**
 
 - **No DOM structure awareness**: We don't know the actual HTML element hierarchy
+
   - Example: Can't tell if a `div` is inside another `div` or a `section`
   - Can't resolve parent-child relationships
 
 - **No CSS nesting support** (CSS Nesting Module):
+
   ```css
   .parent {
     --color: red;
     .child {
-      --color: blue;  /* We parse this but don't know it's nested */
+      --color: blue; /* We parse this but don't know it's nested */
     }
   }
   ```
 
 - **No descendant/combinator resolution**:
   ```css
-  div .class { --color: blue; }      /* We see "div .class" but can't match it to usage context */
-  div > .class { --color: green; }   /* Same issue */
-  .parent .child { --color: red; }   /* We don't know .child is inside .parent */
+  div .class {
+    --color: blue;
+  } /* We see "div .class" but can't match it to usage context */
+  div > .class {
+    --color: green;
+  } /* Same issue */
+  .parent .child {
+    --color: red;
+  } /* We don't know .child is inside .parent */
   ```
 
 ### What This Means
 
 Our current implementation:
+
 1. ✅ Extracts the selector (e.g., `div`, `.class`)
 2. ✅ Calculates specificity (e.g., `.class` > `div`)
 3. ✅ Shows which would apply based on **exact selector match**
@@ -58,10 +69,16 @@ Our current implementation:
 ### Example of Current Limitation
 
 ```css
-div { --color: red; }
-div .inner { --color: blue; }
+div {
+  --color: red;
+}
+div .inner {
+  --color: blue;
+}
 
-.inner { color: var(--color); }  /* Which color applies? */
+.inner {
+  color: var(--color);
+} /* Which color applies? */
 ```
 
 **What we show**: Both `red` and `blue` with specificity scores
@@ -70,6 +87,7 @@ div .inner { --color: blue; }
 ### Other Limitations
 
 - **Complex selectors**:
+
   - Attribute selectors: `[data-attr="value"]` ✅ Parsed, ❌ Not matched
   - Pseudo-classes: `:hover`, `:nth-child()` ✅ Parsed, ❌ Context not resolved
   - Pseudo-elements: `::before`, `::after` ✅ Counted in specificity
@@ -119,10 +137,12 @@ div .inner { --color: blue; }
 **You asked: "Should we also care about nesting?"**
 
 **Answer**: YES! Nesting/hierarchy is currently our biggest limitation. We handle:
+
 - ✅ Basic selector matching and specificity
 - ❌ NOT actual DOM structure or nested selectors
 
 To fully resolve which value applies, we'd need:
+
 1. HTML DOM structure analysis
 2. Selector combinator matching
 3. CSS cascade simulation

@@ -51,12 +51,18 @@ Command-line flags:
 - `--color-only-variables` (show colors only on `var(--...)` usages)
 - `--lookup-files "<glob>,<glob>"` (comma-separated list of glob patterns)
 - `--lookup-file "<glob>"` (repeatable)
+- `--path-display=relative|absolute|abbreviated`
+- `--path-display-length=N` (only used for `abbreviated`; `0` disables shortening)
 
 Environment variables:
 
 - `CSS_LSP_COLOR_ONLY_VARIABLES=1` (same as `--color-only-variables`)
 - `CSS_LSP_LOOKUP_FILES` (comma-separated glob patterns; ignored if CLI lookup flags are provided)
 - `CSS_LSP_DEBUG=1` (enable debug logging)
+- `CSS_LSP_PATH_DISPLAY=relative|absolute|abbreviated` (controls completion path formatting)
+- `CSS_LSP_PATH_DISPLAY_LENGTH=1` (same as `--path-display-length`)
+
+`abbreviated` mode shortens each directory segment (except the final one) to the configured length, matching fish-style prompt shortening. The default is `relative` with a length of `1`.
 
 Defaults:
 
