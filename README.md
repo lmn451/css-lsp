@@ -58,7 +58,25 @@ Environment variables:
 - `CSS_LSP_LOOKUP_FILES` (comma-separated glob patterns; ignored if CLI lookup flags are provided)
 - `CSS_LSP_DEBUG=1` (enable debug logging)
 
-The default ignore list (e.g., `node_modules`, `dist`) remains in effect even when lookup globs are provided.
+Defaults:
+
+- Lookup globs:
+  - `**/*.css`
+  - `**/*.scss`
+  - `**/*.sass`
+  - `**/*.less`
+  - `**/*.html`
+  - `**/*.vue`
+  - `**/*.svelte`
+  - `**/*.astro`
+  - `**/*.ripple`
+- Ignore globs:
+  - `**/node_modules/**`
+  - `**/dist/**`
+  - `**/out/**`
+  - `**/.git/**`
+
+Lookup globs accept standard glob patterns (including brace expansions like `**/*.{css,scss}`) and the default ignore list remains in effect even when lookup globs are provided.
 
 ## Cascade Awareness (Best-Effort)
 
