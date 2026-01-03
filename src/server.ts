@@ -28,6 +28,8 @@ import {
 	TextDocument
 } from 'vscode-languageserver-textdocument';
 import { CssVariable } from './cssVariableManager';
+import * as path from 'path';
+import { URI } from 'vscode-uri';
 
 import { CssVariableManager } from './cssVariableManager';
 import { calculateSpecificity, compareSpecificity, formatSpecificity, matchesContext } from './specificity';
@@ -35,8 +37,80 @@ import { parseColor, formatColor, formatColorAsHex, formatColorAsRgb, formatColo
 
 // Parse command-line arguments
 const args = process.argv.slice(2);
+type PathDisplayMode = 'relative' | 'absolute' | 'abbreviated';
+
+function getArgValue(name: string): string | null {
+	const flag = `--${name}`;
+	const directIndex = args.indexOf(flag);
+	if (directIndex !== -1) {
+		const candidate = args[directIndex + 1];
+		if (candidate && !candidate.startsWith('-')) {
+			return candidate;
+		}
+		return null;
+	}
+
+	const prefix = `${flag}=`;
+	const withEquals = args.find(arg => arg.startsWith(prefix));
+	if (withEquals) {
+		return withEquals.slice(prefix.length);
+	}
+
+	return null;
+}
+
+function parseOptionalInt(value: string | null | undefined): number | null {
+	if (!value) {
+		return null;
+	}
+	const parsed = Number.parseInt(value, 10);
+	if (Number.isNaN(parsed)) {
+		return null;
+	}
+	return parsed;
+}
+
+function normalizePathDisplayMode(value: string | null | undefined): PathDisplayMode | null {
+	if (!value) {
+		return null;
+	}
+
+	switch (value.toLowerCase()) {
+		case 'relative':
+			return 'relative';
+		case 'absolute':
+			return 'absolute';
+		case 'abbreviated':
+		case 'abbr':
+		case 'fish':
+			return 'abbreviated';
+		default:
+			return null;
+	}
+}
+
+function parsePathDisplay(value: string | null | undefined): { mode: PathDisplayMode | null; abbrevLength: number | null } {
+	if (!value) {
+		return { mode: null, abbrevLength: null };
+	}
+
+	const [modePart, lengthPart] = value.split(':', 2);
+	const mode = normalizePathDisplayMode(modePart);
+	const abbrevLength = parseOptionalInt(lengthPart);
+
+	return { mode, abbrevLength };
+}
+
 const ENABLE_COLOR_PROVIDER = !args.includes('--no-color-preview');
 const COLOR_ONLY_ON_VARIABLES = args.includes('--color-only-variables') || process.env.CSS_LSP_COLOR_ONLY_VARIABLES === '1';
+const pathDisplayArg = getArgValue('path-display');
+const pathDisplayEnv = process.env.CSS_LSP_PATH_DISPLAY;
+const parsedPathDisplay = parsePathDisplay(pathDisplayArg ?? pathDisplayEnv);
+const PATH_DISPLAY_MODE: PathDisplayMode = parsedPathDisplay.mode ?? 'relative';
+const pathDisplayLengthArg = getArgValue('path-display-length');
+const pathDisplayLengthEnv = process.env.CSS_LSP_PATH_DISPLAY_LENGTH;
+const abbrevLengthRaw = parseOptionalInt(pathDisplayLengthArg ?? pathDisplayLengthEnv) ?? parsedPathDisplay.abbrevLength;
+const PATH_DISPLAY_ABBREV_LENGTH = Math.max(0, abbrevLengthRaw ?? 1);
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -47,6 +121,94 @@ function logDebug(label: string, payload: unknown) {
 	if (process.env.CSS_LSP_DEBUG) {
 		const message = `[css-lsp] ${label} ${JSON.stringify(payload)}`;
 		connection.console.log(message);
+	}
+}
+
+let workspaceFolderPaths: string[] = [];
+let rootFolderPath: string | null = null;
+
+function toNormalizedFsPath(uri: string): string | null {
+	try {
+		const fsPath = URI.parse(uri).fsPath;
+		return fsPath ? path.normalize(fsPath) : null;
+	} catch {
+		return null;
+	}
+}
+
+function updateWorkspaceFolderPaths(folders?: Array<{ uri: string }>): void {
+	if (!folders) {
+		workspaceFolderPaths = [];
+		return;
+	}
+
+	const paths = folders
+		.map(folder => toNormalizedFsPath(folder.uri))
+		.filter((folderPath): folderPath is string => Boolean(folderPath));
+
+	workspaceFolderPaths = paths.sort((a, b) => b.length - a.length);
+}
+
+function getRelativeDisplayPath(fsPath: string): string | null {
+	const roots = workspaceFolderPaths.length
+		? workspaceFolderPaths
+		: (rootFolderPath ? [rootFolderPath] : []);
+
+	let bestRelative: string | null = null;
+	for (const root of roots) {
+		const relativePath = path.relative(root, fsPath);
+		if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+			continue;
+		}
+		if (!bestRelative || relativePath.length < bestRelative.length) {
+			bestRelative = relativePath;
+		}
+	}
+
+	return bestRelative;
+}
+
+function abbreviatePath(pathValue: string, segmentLength: number): string {
+	if (segmentLength <= 0) {
+		return pathValue;
+	}
+
+	const normalized = path.normalize(pathValue);
+	const parsed = path.parse(normalized);
+	const root = parsed.root;
+	const tail = normalized.slice(root.length);
+	const segments = tail.split(path.sep).filter(segment => segment.length > 0);
+
+	if (segments.length <= 1) {
+		return normalized;
+	}
+
+	const lastIndex = segments.length - 1;
+	const abbreviated = segments.map((segment, index) => {
+		if (index === lastIndex) {
+			return segment;
+		}
+		return segment.slice(0, segmentLength);
+	});
+
+	return root + abbreviated.join(path.sep);
+}
+
+function formatUriForDisplay(uri: string): string {
+	const fsPath = toNormalizedFsPath(uri);
+	if (!fsPath) {
+		return uri;
+	}
+
+	const relativePath = getRelativeDisplayPath(fsPath);
+	switch (PATH_DISPLAY_MODE) {
+		case 'absolute':
+			return fsPath;
+		case 'abbreviated':
+			return abbreviatePath(relativePath || fsPath, PATH_DISPLAY_ABBREV_LENGTH);
+		case 'relative':
+		default:
+			return relativePath || fsPath;
 	}
 }
 
@@ -82,6 +244,12 @@ connection.onInitialize((params: InitializeParams) => {
 		capabilities.textDocument.publishDiagnostics &&
 		capabilities.textDocument.publishDiagnostics.relatedInformation
 	);
+	if (params.rootUri) {
+		rootFolderPath = toNormalizedFsPath(params.rootUri);
+	} else if (params.rootPath) {
+		rootFolderPath = path.normalize(params.rootPath);
+	}
+	updateWorkspaceFolderPaths(params.workspaceFolders || undefined);
 
 	const result: InitializeResult = {
 		capabilities: {
@@ -118,12 +286,16 @@ connection.onInitialized(async () => {
 	if (hasWorkspaceFolderCapability) {
 		connection.workspace.onDidChangeWorkspaceFolders(_event => {
 			connection.console.log('Workspace folder change event received.');
+			void connection.workspace.getWorkspaceFolders().then(folders => {
+				updateWorkspaceFolderPaths(folders || undefined);
+			});
 		});
 	}
 
 	// Scan workspace for CSS variables on initialization with progress reporting
 	const workspaceFolders = await connection.workspace.getWorkspaceFolders();
 	if (workspaceFolders) {
+		updateWorkspaceFolderPaths(workspaceFolders || undefined);
 		connection.console.log('Scanning workspace for CSS variables...');
 
 		const folderUris = workspaceFolders.map(f => f.uri);
@@ -541,7 +713,7 @@ connection.onCompletion(
 			label: sv.variable.name,
 			kind: CompletionItemKind.Variable,
 			detail: sv.variable.value,
-			documentation: `Defined in ${sv.variable.uri}`
+			documentation: `Defined in ${formatUriForDisplay(sv.variable.uri)}`
 		}));
 	}
 );
