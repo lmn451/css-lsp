@@ -51,12 +51,17 @@ Command-line flags:
 - `--color-only-variables` (show colors only on `var(--...)` usages)
 - `--lookup-files "<glob>,<glob>"` (comma-separated list of glob patterns)
 - `--lookup-file "<glob>"` (repeatable)
+- `--ignore-globs "<glob>,<glob>"` (comma-separated list of ignore globs)
+- `--ignore-glob "<glob>"` (repeatable)
 
 Environment variables:
 
 - `CSS_LSP_COLOR_ONLY_VARIABLES=1` (same as `--color-only-variables`)
 - `CSS_LSP_LOOKUP_FILES` (comma-separated glob patterns; ignored if CLI lookup flags are provided)
+- `CSS_LSP_IGNORE_GLOBS` (comma-separated ignore globs; ignored if CLI ignore flags are provided)
 - `CSS_LSP_DEBUG=1` (enable debug logging)
+
+When lookup globs are provided, the default ignore list is disabled unless you set ignore globs explicitly.
 
 ## Cascade Awareness (Best-Effort)
 

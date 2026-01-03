@@ -38,6 +38,8 @@ const args = process.argv.slice(2);
 const ENABLE_COLOR_PROVIDER = !args.includes('--no-color-preview');
 const COLOR_ONLY_ON_VARIABLES = args.includes('--color-only-variables') || process.env.CSS_LSP_COLOR_ONLY_VARIABLES === '1';
 const LOOKUP_FILES = resolveLookupFiles(args);
+const IGNORE_GLOBS = resolveIgnoreGlobs(args);
+const HAS_LOOKUP_OVERRIDE = LOOKUP_FILES !== undefined;
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -53,7 +55,12 @@ function logDebug(label: string, payload: unknown) {
 
 // Create a simple text document manager.
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
-const cssVariableManager = new CssVariableManager(connection.console, LOOKUP_FILES);
+const cssVariableManager = new CssVariableManager(
+	connection.console,
+	LOOKUP_FILES,
+	IGNORE_GLOBS,
+	HAS_LOOKUP_OVERRIDE
+);
 
 function splitLookupList(value: string): string[] {
 	return value
@@ -95,6 +102,45 @@ function resolveLookupFiles(argv: string[]): string[] | undefined {
 		const envFiles = splitLookupList(envValue);
 		if (envFiles.length > 0) {
 			return envFiles;
+		}
+	}
+
+	return undefined;
+}
+
+function resolveIgnoreGlobs(argv: string[]): string[] | undefined {
+	const cliGlobs: string[] = [];
+
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+		if (arg === '--ignore-globs' && argv[i + 1]) {
+			cliGlobs.push(...splitLookupList(argv[i + 1]));
+			i++;
+			continue;
+		}
+		if (arg.startsWith('--ignore-globs=')) {
+			cliGlobs.push(...splitLookupList(arg.slice('--ignore-globs='.length)));
+			continue;
+		}
+		if (arg === '--ignore-glob' && argv[i + 1]) {
+			cliGlobs.push(argv[i + 1]);
+			i++;
+			continue;
+		}
+		if (arg.startsWith('--ignore-glob=')) {
+			cliGlobs.push(arg.slice('--ignore-glob='.length));
+		}
+	}
+
+	if (cliGlobs.length > 0) {
+		return cliGlobs;
+	}
+
+	const envValue = process.env.CSS_LSP_IGNORE_GLOBS;
+	if (envValue) {
+		const envGlobs = splitLookupList(envValue);
+		if (envGlobs.length > 0) {
+			return envGlobs;
 		}
 	}
 
