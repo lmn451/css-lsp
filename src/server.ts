@@ -23,11 +23,12 @@ import {
 	ColorInformation,
 	ColorPresentation
 } from 'vscode-languageserver/node';
-import * as fs from 'fs'
 import {
 	TextDocument
 } from 'vscode-languageserver-textdocument';
 import { CssVariable } from './cssVariableManager';
+import * as path from 'path';
+import { URI } from 'vscode-uri';
 
 import { CssVariableManager } from './cssVariableManager';
 import { calculateSpecificity, compareSpecificity, formatSpecificity, matchesContext } from './specificity';
@@ -50,6 +51,52 @@ function logDebug(label: string, payload: unknown) {
 	}
 }
 
+function toNormalizedFsPath(uri: string): string | null {
+	try {
+		const fsPath = URI.parse(uri).fsPath;
+		return fsPath ? path.normalize(fsPath) : null;
+	} catch {
+		return null;
+	}
+}
+
+function updateWorkspaceFolderPaths(folders?: Array<{ uri: string }>): void {
+	if (!folders) {
+		workspaceFolderPaths = [];
+		return;
+	}
+
+	const paths = folders
+		.map(folder => toNormalizedFsPath(folder.uri))
+		.filter((folderPath): folderPath is string => Boolean(folderPath));
+
+	workspaceFolderPaths = paths.toSorted((a, b) => b.length - a.length);
+}
+
+function formatUriForDisplay(uri: string): string {
+	const fsPath = toNormalizedFsPath(uri);
+	if (!fsPath) {
+		return uri;
+	}
+
+	const roots = workspaceFolderPaths.length
+		? workspaceFolderPaths
+		: (rootFolderPath ? [rootFolderPath] : []);
+
+	let bestRelative: string | null = null;
+	for (const root of roots) {
+		const relativePath = path.relative(root, fsPath);
+		if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+			continue;
+		}
+		if (!bestRelative || relativePath.length < bestRelative.length) {
+			bestRelative = relativePath;
+		}
+	}
+
+	return bestRelative || fsPath;
+}
+
 // Create a simple text document manager.
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 const cssVariableManager = new CssVariableManager(connection.console);
@@ -57,6 +104,8 @@ const cssVariableManager = new CssVariableManager(connection.console);
 let hasConfigurationCapability = false;
 let hasWorkspaceFolderCapability = false;
 let hasDiagnosticRelatedInformationCapability = false;
+let workspaceFolderPaths: string[] = [];
+let rootFolderPath: string | null = null;
 
 connection.onInitialize((params: InitializeParams) => {
 	logDebug('initialize', {
@@ -82,6 +131,16 @@ connection.onInitialize((params: InitializeParams) => {
 		capabilities.textDocument.publishDiagnostics &&
 		capabilities.textDocument.publishDiagnostics.relatedInformation
 	);
+	if (params.rootUri) {
+		try {
+			rootFolderPath = path.normalize(URI.parse(params.rootUri).fsPath);
+		} catch {
+			rootFolderPath = null;
+		}
+	} else if (params.rootPath) {
+		rootFolderPath = path.normalize(params.rootPath);
+	}
+	updateWorkspaceFolderPaths(params.workspaceFolders || undefined);
 
 	const result: InitializeResult = {
 		capabilities: {
@@ -118,12 +177,16 @@ connection.onInitialized(async () => {
 	if (hasWorkspaceFolderCapability) {
 		connection.workspace.onDidChangeWorkspaceFolders(_event => {
 			connection.console.log('Workspace folder change event received.');
+			void connection.workspace.getWorkspaceFolders().then(folders => {
+				updateWorkspaceFolderPaths(folders || undefined);
+			});
 		});
 	}
 
 	// Scan workspace for CSS variables on initialization with progress reporting
 	const workspaceFolders = await connection.workspace.getWorkspaceFolders();
 	if (workspaceFolders) {
+		updateWorkspaceFolderPaths(workspaceFolders || undefined);
 		connection.console.log('Scanning workspace for CSS variables...');
 
 		const folderUris = workspaceFolders.map(f => f.uri);
@@ -227,7 +290,6 @@ documents.onDidChangeContent(change => {
 });
 
 async function validateTextDocument(textDocument: TextDocument): Promise<void> {
-	const settings = await getDocumentSettings(textDocument.uri);
 	const text = textDocument.getText();
 	const diagnostics: Diagnostic[] = [];
 
@@ -541,7 +603,7 @@ connection.onCompletion(
 			label: sv.variable.name,
 			kind: CompletionItemKind.Variable,
 			detail: sv.variable.value,
-			documentation: `Defined in ${sv.variable.uri}`
+			documentation: `Defined in ${formatUriForDisplay(sv.variable.uri)}`
 		}));
 	}
 );
