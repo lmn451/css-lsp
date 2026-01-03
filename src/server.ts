@@ -11,17 +11,12 @@ import {
   CompletionItem,
   CompletionItemKind,
   TextDocumentPositionParams,
-  TextDocumentSyncKind,
-  InitializeResult,
   Location,
   SymbolKind,
   DocumentSymbol,
   WorkspaceSymbol,
-  WorkspaceEdit,
   TextEdit,
   FileChangeType,
-  ColorInformation,
-  ColorPresentation,
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { CssVariable } from "./cssVariableManager";
@@ -30,151 +25,20 @@ import { URI } from "vscode-uri";
 
 import { CssVariableManager } from "./cssVariableManager";
 import {
+  collectColorPresentations,
+  collectDocumentColors,
+} from "./colorProvider";
+import { buildInitializeResult } from "./initialize";
+import { formatUriForDisplay, toNormalizedFsPath } from "./pathDisplay";
+import { buildRuntimeConfig } from "./runtimeConfig";
+import {
   calculateSpecificity,
   compareSpecificity,
   formatSpecificity,
   matchesContext,
 } from "./specificity";
-import {
-  parseColor,
-  formatColor,
-  formatColorAsHex,
-  formatColorAsRgb,
-  formatColorAsHsl,
-} from "./colorService";
 
-// Parse command-line arguments
-const args = process.argv.slice(2);
-type PathDisplayMode = "relative" | "absolute" | "abbreviated";
-
-function getArgValue(name: string): string | null {
-  const flag = `--${name}`;
-  const directIndex = args.indexOf(flag);
-  if (directIndex !== -1) {
-    const candidate = args[directIndex + 1];
-    if (candidate && !candidate.startsWith("-")) {
-      return candidate;
-    }
-    return null;
-  }
-
-  const prefix = `${flag}=`;
-  const withEquals = args.find((arg) => arg.startsWith(prefix));
-  if (withEquals) {
-    return withEquals.slice(prefix.length);
-  }
-
-  return null;
-}
-
-function parseOptionalInt(value: string | null | undefined): number | null {
-  if (!value) {
-    return null;
-  }
-  const parsed = Number.parseInt(value, 10);
-  if (Number.isNaN(parsed)) {
-    return null;
-  }
-  return parsed;
-}
-
-function normalizePathDisplayMode(
-  value: string | null | undefined,
-): PathDisplayMode | null {
-  if (!value) {
-    return null;
-  }
-
-  switch (value.toLowerCase()) {
-    case "relative":
-      return "relative";
-    case "absolute":
-      return "absolute";
-    case "abbreviated":
-    case "abbr":
-    case "fish":
-      return "abbreviated";
-    default:
-      return null;
-  }
-}
-
-function parsePathDisplay(value: string | null | undefined): {
-  mode: PathDisplayMode | null;
-  abbrevLength: number | null;
-} {
-  if (!value) {
-    return { mode: null, abbrevLength: null };
-  }
-
-  const [modePart, lengthPart] = value.split(":", 2);
-  const mode = normalizePathDisplayMode(modePart);
-  const abbrevLength = parseOptionalInt(lengthPart);
-
-  return { mode, abbrevLength };
-}
-
-function splitLookupList(value: string): string[] {
-  return value
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-}
-
-function resolveLookupFiles(argv: string[]): string[] | undefined {
-  const cliFiles: string[] = [];
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === "--lookup-files" && argv[i + 1]) {
-      cliFiles.push(...splitLookupList(argv[i + 1]));
-      i++;
-      continue;
-    }
-    if (arg.startsWith("--lookup-files=")) {
-      cliFiles.push(...splitLookupList(arg.slice("--lookup-files=".length)));
-      continue;
-    }
-    if (arg === "--lookup-file" && argv[i + 1]) {
-      cliFiles.push(argv[i + 1]);
-      i++;
-      continue;
-    }
-    if (arg.startsWith("--lookup-file=")) {
-      cliFiles.push(arg.slice("--lookup-file=".length));
-    }
-  }
-
-  if (cliFiles.length > 0) {
-    return cliFiles;
-  }
-
-  const envValue = process.env.CSS_LSP_LOOKUP_FILES;
-  if (envValue) {
-    const envFiles = splitLookupList(envValue);
-    if (envFiles.length > 0) {
-      return envFiles;
-    }
-  }
-
-  return undefined;
-}
-
-const ENABLE_COLOR_PROVIDER = !args.includes("--no-color-preview");
-const COLOR_ONLY_ON_VARIABLES =
-  args.includes("--color-only-variables") ||
-  process.env.CSS_LSP_COLOR_ONLY_VARIABLES === "1";
-const LOOKUP_FILES = resolveLookupFiles(args);
-const pathDisplayArg = getArgValue("path-display");
-const pathDisplayEnv = process.env.CSS_LSP_PATH_DISPLAY;
-const parsedPathDisplay = parsePathDisplay(pathDisplayArg ?? pathDisplayEnv);
-const PATH_DISPLAY_MODE: PathDisplayMode = parsedPathDisplay.mode ?? "relative";
-const pathDisplayLengthArg = getArgValue("path-display-length");
-const pathDisplayLengthEnv = process.env.CSS_LSP_PATH_DISPLAY_LENGTH;
-const abbrevLengthRaw =
-  parseOptionalInt(pathDisplayLengthArg ?? pathDisplayLengthEnv) ??
-  parsedPathDisplay.abbrevLength;
-const PATH_DISPLAY_ABBREV_LENGTH = Math.max(0, abbrevLengthRaw ?? 1);
+const runtimeConfig = buildRuntimeConfig(process.argv.slice(2), process.env);
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -185,15 +49,6 @@ function logDebug(label: string, payload: unknown) {
   if (process.env.CSS_LSP_DEBUG) {
     const message = `[css-lsp] ${label} ${JSON.stringify(payload)}`;
     connection.console.log(message);
-  }
-}
-
-function toNormalizedFsPath(uri: string): string | null {
-  try {
-    const fsPath = URI.parse(uri).fsPath;
-    return fsPath ? path.normalize(fsPath) : null;
-  } catch {
-    return null;
   }
 }
 
@@ -210,41 +65,11 @@ function updateWorkspaceFolderPaths(folders?: Array<{ uri: string }>): void {
   workspaceFolderPaths = paths.toSorted((a, b) => b.length - a.length);
 }
 
-function formatUriForDisplay(uri: string): string {
-  const fsPath = toNormalizedFsPath(uri);
-  if (!fsPath) {
-    return uri;
-  }
-
-  const roots = workspaceFolderPaths.length
-    ? workspaceFolderPaths
-    : rootFolderPath
-      ? [rootFolderPath]
-      : [];
-
-  let bestRelative: string | null = null;
-  for (const root of roots) {
-    const relativePath = path.relative(root, fsPath);
-    if (
-      !relativePath ||
-      relativePath.startsWith("..") ||
-      path.isAbsolute(relativePath)
-    ) {
-      continue;
-    }
-    if (!bestRelative || relativePath.length < bestRelative.length) {
-      bestRelative = relativePath;
-    }
-  }
-
-  return bestRelative || fsPath;
-}
-
 // Create a simple text document manager.
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 const cssVariableManager = new CssVariableManager(
   connection.console,
-  LOOKUP_FILES,
+  runtimeConfig.lookupFiles,
 );
 
 let hasConfigurationCapability = false;
@@ -288,31 +113,10 @@ connection.onInitialize((params: InitializeParams) => {
   }
   updateWorkspaceFolderPaths(params.workspaceFolders || undefined);
 
-  const result: InitializeResult = {
-    capabilities: {
-      textDocumentSync: TextDocumentSyncKind.Incremental,
-      // Tell the client that this server supports code completion.
-      completionProvider: {
-        resolveProvider: true,
-        triggerCharacters: ["-"],
-      },
-      definitionProvider: true,
-      hoverProvider: true,
-      referencesProvider: true,
-      renameProvider: true,
-      documentSymbolProvider: true,
-      workspaceSymbolProvider: true,
-      colorProvider: ENABLE_COLOR_PROVIDER,
-    },
-  };
-  if (hasWorkspaceFolderCapability) {
-    result.capabilities.workspace = {
-      workspaceFolders: {
-        supported: true,
-      },
-    };
-  }
-  return result;
+  return buildInitializeResult(
+    runtimeConfig.enableColorProvider,
+    hasWorkspaceFolderCapability,
+  );
 });
 
 connection.onInitialized(async () => {
@@ -843,7 +647,12 @@ connection.onCompletion(
       label: sv.variable.name,
       kind: CompletionItemKind.Variable,
       detail: sv.variable.value,
-      documentation: `Defined in ${formatUriForDisplay(sv.variable.uri)}`,
+      documentation: `Defined in ${formatUriForDisplay(sv.variable.uri, {
+        mode: runtimeConfig.pathDisplayMode,
+        abbrevLength: runtimeConfig.pathDisplayAbbrevLength,
+        workspaceFolderPaths,
+        rootFolderPath,
+      })}`,
     }));
   },
 );
@@ -1151,121 +960,29 @@ connection.onWorkspaceSymbol((params) => {
 
 // Color Provider: Document Colors
 connection.onDocumentColor((params) => {
-  // Skip if color provider is disabled
-  if (!ENABLE_COLOR_PROVIDER) {
-    return [];
-  }
-
   const document = documents.get(params.textDocument.uri);
   if (!document) {
     return [];
   }
-
-  const colors: ColorInformation[] = [];
-  const text = document.getText();
-
-  // 1. Check variable definitions: --my-color: #f00;
-  // Only show color boxes on definitions if COLOR_ONLY_ON_VARIABLES is false
-  if (!COLOR_ONLY_ON_VARIABLES) {
-    const definitions = cssVariableManager.getDocumentDefinitions(document.uri);
-    for (const def of definitions) {
-      const color = parseColor(def.value);
-      if (color) {
-        // Use the stored valueRange if available (accurate from csstree parsing)
-        if (def.valueRange) {
-          colors.push({
-            range: def.valueRange,
-            color: color,
-          });
-        } else {
-          // Fallback: find the value within the declaration text
-          // This handles cases where valueRange wasn't captured (shouldn't happen normally)
-          const defText = text.substring(
-            document.offsetAt(def.range.start),
-            document.offsetAt(def.range.end),
-          );
-          const colonIndex = defText.indexOf(":");
-          if (colonIndex !== -1) {
-            const afterColon = defText.substring(colonIndex + 1);
-            const valueIndex = afterColon.indexOf(def.value.trim());
-
-            if (valueIndex !== -1) {
-              const absoluteValueStart =
-                document.offsetAt(def.range.start) +
-                colonIndex +
-                1 +
-                valueIndex;
-              const start = document.positionAt(absoluteValueStart);
-              const end = document.positionAt(
-                absoluteValueStart + def.value.trim().length,
-              );
-              colors.push({
-                range: { start, end },
-                color: color,
-              });
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // 2. Check variable usages: var(--my-color)
-  // Always show color boxes on var() usages (they show the resolved CSS variable color)
-  const regex = /var\((--[\w-]+)\)/g;
-  let match;
-  while ((match = regex.exec(text)) !== null) {
-    const varName = match[1];
-    const color = cssVariableManager.resolveVariableColor(varName);
-    if (color) {
-      const start = document.positionAt(match.index);
-      const end = document.positionAt(match.index + match[0].length);
-      colors.push({
-        range: { start, end },
-        color: color,
-      });
-    }
-  }
-
-  return colors;
+  return collectDocumentColors(document, cssVariableManager, {
+    enabled: runtimeConfig.enableColorProvider,
+    onlyVariables: runtimeConfig.colorOnlyOnVariables,
+  });
 });
 
 // Color Provider: Color Presentation
 connection.onColorPresentation((params) => {
-  // Skip if color provider is disabled
-  if (!ENABLE_COLOR_PROVIDER) {
-    return [];
-  }
-
   const color = params.color;
   const range = params.range;
   const document = documents.get(params.textDocument.uri);
   if (!document) {
     return [];
   }
-
-  // Offer multiple format options for the color picker
-  const presentations: ColorPresentation[] = [];
-
-  // 1. Hex format (most common)
-  const hexStr = formatColorAsHex(color);
-  presentations.push(
-    ColorPresentation.create(hexStr, TextEdit.replace(range, hexStr)),
+  return collectColorPresentations(
+    range,
+    color,
+    runtimeConfig.enableColorProvider,
   );
-
-  // 2. RGB format
-  const rgbStr = formatColorAsRgb(color);
-  presentations.push(
-    ColorPresentation.create(rgbStr, TextEdit.replace(range, rgbStr)),
-  );
-
-  // 3. HSL format
-  const hslStr = formatColorAsHsl(color);
-  presentations.push(
-    ColorPresentation.create(hslStr, TextEdit.replace(range, hslStr)),
-  );
-
-  return presentations;
 });
 
 // Make the text document manager listen on the connection

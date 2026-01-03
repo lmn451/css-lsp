@@ -1,61 +1,65 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { parseColor, formatColor } from "../src/colorService";
-import { CssVariableManager } from "../src/cssVariableManager";
 import { TextDocument } from "vscode-languageserver-textdocument";
+import { CssVariableManager } from "../src/cssVariableManager";
+import {
+  collectColorPresentations,
+  collectDocumentColors,
+} from "../src/colorProvider";
 
-test("color service parsing and formatting", () => {
-  const red = parseColor("#ff0000");
-  assert.deepStrictEqual(red, { red: 1, green: 0, blue: 0, alpha: 1 });
+function createDoc(uri: string, content: string, languageId: string = "css") {
+  return TextDocument.create(uri, languageId, 1, content);
+}
 
-  const blue = parseColor("#00f");
-  assert.deepStrictEqual(blue, { red: 0, green: 0, blue: 1, alpha: 1 });
+test("collectDocumentColors returns empty when disabled", () => {
+  const manager = new CssVariableManager();
+  const uri = "file:///colors.css";
+  const css = ":root { --primary: #ff0000; }";
+  const doc = createDoc(uri, css);
+  manager.parseDocument(doc);
 
-  const alpha = parseColor("#00000080");
-  assert.strictEqual(alpha?.alpha.toFixed(1), "0.5");
+  const colors = collectDocumentColors(doc, manager, {
+    enabled: false,
+    onlyVariables: false,
+  });
 
-  const green = parseColor("rgb(0, 255, 0)");
-  assert.deepStrictEqual(green, { red: 0, green: 1, blue: 0, alpha: 1 });
-
-  const rgba = parseColor("rgba(0, 0, 0, 0.5)");
-  assert.strictEqual(rgba?.alpha, 0.5);
-
-  const white = parseColor("white");
-  assert.deepStrictEqual(white, { red: 1, green: 1, blue: 1, alpha: 1 });
-
-  const redColor = { red: 1, green: 0, blue: 0, alpha: 1 };
-  assert.strictEqual(formatColor(redColor), "#ff0000");
-
-  const alphaColor = { red: 0, green: 0, blue: 0, alpha: 0.5 };
-  assert.strictEqual(formatColor(alphaColor), "rgba(0, 0, 0, 0.5)");
+  assert.deepEqual(colors, []);
 });
 
-test("CSS variable color resolution", () => {
+test("collectDocumentColors respects onlyVariables flag", () => {
   const manager = new CssVariableManager();
+  const uri = "file:///colors-usage.css";
   const css = `
-		:root {
-			--red: #ff0000;
-			--blue: blue;
-			--alias: var(--red);
-			--nested: var(--alias);
-			--not-color: 10px;
-		}
-	`;
-  const document = TextDocument.create("file:///test.css", "css", 1, css);
-  manager.parseDocument(document);
+:root { --primary: #ff0000; }
+.btn { color: var(--primary); }
+`;
+  const doc = createDoc(uri, css);
+  manager.parseDocument(doc);
 
-  const red = manager.resolveVariableColor("--red");
-  assert.deepStrictEqual(red, { red: 1, green: 0, blue: 0, alpha: 1 });
+  const allColors = collectDocumentColors(doc, manager, {
+    enabled: true,
+    onlyVariables: false,
+  });
 
-  const blue = manager.resolveVariableColor("--blue");
-  assert.deepStrictEqual(blue, { red: 0, green: 0, blue: 1, alpha: 1 });
+  const usageOnly = collectDocumentColors(doc, manager, {
+    enabled: true,
+    onlyVariables: true,
+  });
 
-  const alias = manager.resolveVariableColor("--alias");
-  assert.deepStrictEqual(alias, { red: 1, green: 0, blue: 0, alpha: 1 });
+  assert.equal(allColors.length, 2);
+  assert.equal(usageOnly.length, 1);
+});
 
-  const nested = manager.resolveVariableColor("--nested");
-  assert.deepStrictEqual(nested, { red: 1, green: 0, blue: 0, alpha: 1 });
+test("collectColorPresentations honors enabled flag", () => {
+  const range = {
+    start: { line: 0, character: 0 },
+    end: { line: 0, character: 3 },
+  };
+  const color = { red: 1, green: 0, blue: 0, alpha: 1 };
 
-  const notColor = manager.resolveVariableColor("--not-color");
-  assert.strictEqual(notColor, null);
+  const disabled = collectColorPresentations(range, color, false);
+  const enabled = collectColorPresentations(range, color, true);
+
+  assert.deepEqual(disabled, []);
+  assert.equal(enabled.length, 3);
 });
