@@ -60,7 +60,7 @@ class CssVariableManager {
     lookupFiles;
     ignoreGlobs;
     lookupExtensions;
-    constructor(logger, lookupFiles) {
+    constructor(logger, lookupFiles, ignoreGlobs) {
         this.logger = logger || {
             log: (message) => {
                 // Only log to console in debug mode
@@ -75,7 +75,8 @@ class CssVariableManager {
         };
         this.lookupFiles =
             lookupFiles && lookupFiles.length > 0 ? lookupFiles : DEFAULT_LOOKUP_FILES;
-        this.ignoreGlobs = DEFAULT_IGNORE_GLOBS;
+        this.ignoreGlobs =
+            ignoreGlobs && ignoreGlobs.length > 0 ? ignoreGlobs : DEFAULT_IGNORE_GLOBS;
         this.lookupExtensions = this.buildLookupExtensions(this.lookupFiles);
     }
     buildLookupExtensions(lookupFiles) {
