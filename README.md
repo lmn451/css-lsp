@@ -51,6 +51,8 @@ Command-line flags:
 - `--color-only-variables` (show colors only on `var(--...)` usages)
 - `--lookup-files "<glob>,<glob>"` (comma-separated list of glob patterns)
 - `--lookup-file "<glob>"` (repeatable)
+- `--ignore-globs "<glob>,<glob>"` (comma-separated list of glob patterns)
+- `--ignore-glob "<glob>"` (repeatable)
 - `--path-display=relative|absolute|abbreviated`
 - `--path-display-length=N` (only used for `abbreviated`; `0` disables shortening)
 
@@ -58,6 +60,7 @@ Environment variables:
 
 - `CSS_LSP_COLOR_ONLY_VARIABLES=1` (same as `--color-only-variables`)
 - `CSS_LSP_LOOKUP_FILES` (comma-separated glob patterns; ignored if CLI lookup flags are provided)
+- `CSS_LSP_IGNORE_GLOBS` (comma-separated glob patterns; ignored if CLI ignore flags are provided)
 - `CSS_LSP_DEBUG=1` (enable debug logging)
 - `CSS_LSP_PATH_DISPLAY=relative|absolute|abbreviated`
 - `CSS_LSP_PATH_DISPLAY_LENGTH=1` (same as `--path-display-length`)
@@ -82,7 +85,7 @@ Defaults:
   - `**/out/**`
   - `**/.git/**`
 
-`abbreviated` mode shortens each directory segment (except the final one) to the configured length, matching fish-style prompt shortening. Lookup globs accept standard glob patterns (including brace expansions like `**/*.{css,scss}`) and the default ignore list remains in effect even when lookup globs are provided.
+`abbreviated` mode shortens each directory segment (except the final one) to the configured length, matching fish-style prompt shortening. Lookup/ignore globs accept standard glob patterns (including brace expansions like `**/*.{css,scss}`). Ignore globs replace the defaults when provided (include any defaults you still want to keep).
 
 ### Completion Path Examples
 

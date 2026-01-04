@@ -4,6 +4,7 @@ export interface RuntimeConfig {
   enableColorProvider: boolean;
   colorOnlyOnVariables: boolean;
   lookupFiles: string[] | undefined;
+  ignoreGlobs: string[] | undefined;
   pathDisplayMode: PathDisplayMode;
   pathDisplayAbbrevLength: number;
 }
@@ -132,6 +133,56 @@ function resolveLookupFiles(
   return undefined;
 }
 
+function resolveIgnoreGlobs(
+  argv: string[],
+  env: NodeJS.ProcessEnv,
+): string[] | undefined {
+  const cliGlobs: string[] = [];
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (
+      arg === "--ignore-globs" &&
+      argv[i + 1] &&
+      !argv[i + 1].startsWith("-")
+    ) {
+      cliGlobs.push(...splitLookupList(argv[i + 1]));
+      i++;
+      continue;
+    }
+    if (arg.startsWith("--ignore-globs=")) {
+      cliGlobs.push(...splitLookupList(arg.slice("--ignore-globs=".length)));
+      continue;
+    }
+    if (
+      arg === "--ignore-glob" &&
+      argv[i + 1] &&
+      !argv[i + 1].startsWith("-")
+    ) {
+      cliGlobs.push(argv[i + 1]);
+      i++;
+      continue;
+    }
+    if (arg.startsWith("--ignore-glob=")) {
+      cliGlobs.push(arg.slice("--ignore-glob=".length));
+    }
+  }
+
+  if (cliGlobs.length > 0) {
+    return cliGlobs;
+  }
+
+  const envValue = env.CSS_LSP_IGNORE_GLOBS;
+  if (envValue) {
+    const envGlobs = splitLookupList(envValue);
+    if (envGlobs.length > 0) {
+      return envGlobs;
+    }
+  }
+
+  return undefined;
+}
+
 export function buildRuntimeConfig(
   argv: string[],
   env: NodeJS.ProcessEnv,
@@ -141,6 +192,7 @@ export function buildRuntimeConfig(
     argv.includes("--color-only-variables") ||
     env.CSS_LSP_COLOR_ONLY_VARIABLES === "1";
   const lookupFiles = resolveLookupFiles(argv, env);
+  const ignoreGlobs = resolveIgnoreGlobs(argv, env);
   const pathDisplayArg = getArgValue(argv, "path-display");
   const pathDisplayEnv = env.CSS_LSP_PATH_DISPLAY;
   const parsedPathDisplay = parsePathDisplay(pathDisplayArg ?? pathDisplayEnv);
@@ -157,6 +209,7 @@ export function buildRuntimeConfig(
     enableColorProvider,
     colorOnlyOnVariables,
     lookupFiles,
+    ignoreGlobs,
     pathDisplayMode,
     pathDisplayAbbrevLength,
   };

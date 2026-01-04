@@ -20,6 +20,7 @@ test("runtime config defaults", () => {
   assert.equal(config.enableColorProvider, true);
   assert.equal(config.colorOnlyOnVariables, false);
   assert.equal(config.lookupFiles, undefined);
+  assert.equal(config.ignoreGlobs, undefined);
   assert.equal(config.pathDisplayMode, "relative");
   assert.equal(config.pathDisplayAbbrevLength, 1);
 });
@@ -78,6 +79,38 @@ test("lookup files fall back to env when cli list is empty", () => {
   );
 
   assert.deepEqual(config.lookupFiles, ["env.css", "other.css"]);
+});
+
+test("ignore globs resolve from cli then env", () => {
+  const config = buildRuntimeConfig(
+    [
+      "--ignore-globs",
+      "**/dist/**,**/.next/**",
+      "--ignore-glob",
+      "**/coverage/**",
+      "--ignore-globs=**/out/** , **/tmp/**",
+      "--ignore-glob=**/cache/**",
+    ],
+    makeEnv({ CSS_LSP_IGNORE_GLOBS: "**/env/**" }),
+  );
+
+  assert.deepEqual(config.ignoreGlobs, [
+    "**/dist/**",
+    "**/.next/**",
+    "**/coverage/**",
+    "**/out/**",
+    "**/tmp/**",
+    "**/cache/**",
+  ]);
+});
+
+test("ignore globs fall back to env when cli list is empty", () => {
+  const config = buildRuntimeConfig(
+    ["--ignore-globs", ",,"],
+    makeEnv({ CSS_LSP_IGNORE_GLOBS: "**/env/**,**/vendor/**" }),
+  );
+
+  assert.deepEqual(config.ignoreGlobs, ["**/env/**", "**/vendor/**"]);
 });
 
 test("path display parsing supports abbreviations and lengths", () => {

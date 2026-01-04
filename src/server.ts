@@ -70,6 +70,7 @@ const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 const cssVariableManager = new CssVariableManager(
   connection.console,
   runtimeConfig.lookupFiles,
+  runtimeConfig.ignoreGlobs,
 );
 
 let hasConfigurationCapability = false;
