@@ -89,7 +89,11 @@ export class CssVariableManager {
   private ignoreGlobs: string[];
   private lookupExtensions: Map<string, string>;
 
-  constructor(logger?: Logger, lookupFiles?: string[]) {
+  constructor(
+    logger?: Logger,
+    lookupFiles?: string[],
+    ignoreGlobs?: string[],
+  ) {
     this.logger = logger || {
       log: (message: string) => {
         // Only log to console in debug mode
@@ -104,7 +108,8 @@ export class CssVariableManager {
     };
     this.lookupFiles =
       lookupFiles && lookupFiles.length > 0 ? lookupFiles : DEFAULT_LOOKUP_FILES;
-    this.ignoreGlobs = DEFAULT_IGNORE_GLOBS;
+    this.ignoreGlobs =
+      ignoreGlobs && ignoreGlobs.length > 0 ? ignoreGlobs : DEFAULT_IGNORE_GLOBS;
     this.lookupExtensions = this.buildLookupExtensions(this.lookupFiles);
   }
 
