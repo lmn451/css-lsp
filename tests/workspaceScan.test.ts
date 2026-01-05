@@ -50,3 +50,30 @@ test("scanWorkspace applies lookup globs and ignores node_modules", async () => 
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("scanWorkspace normalizes backslash globs", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "css-lsp-scan-"));
+
+  try {
+    writeFile(
+      path.join(tempDir, "src", "tokens.css"),
+      ":root { --win-var: hotpink; }",
+    );
+    writeFile(
+      path.join(tempDir, "node_modules", "pkg", "ignored.css"),
+      ":root { --ignored-win-var: orange; }",
+    );
+
+    const manager = new CssVariableManager(
+      new SilentLogger(),
+      ["src\\**\\*.css"],
+      ["**\\node_modules\\**"],
+    );
+    await manager.scanWorkspace([URI.file(tempDir).toString()]);
+
+    assert.equal(manager.getVariables("--win-var").length, 1);
+    assert.equal(manager.getVariables("--ignored-win-var").length, 0);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});

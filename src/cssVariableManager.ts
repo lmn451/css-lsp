@@ -5,7 +5,7 @@ import { glob } from "glob";
 import * as fs from "fs";
 import * as csstree from "css-tree";
 import { DOMTree, DOMNodeInfo } from "./domTree";
-import { parse, HTMLElement as ParsedHTMLElement } from "node-html-parser";
+import { parse } from "node-html-parser";
 import { Color } from "vscode-languageserver/node";
 import { parseColor } from "./colorService";
 import { calculateSpecificity, compareSpecificity } from "./specificity";
@@ -66,6 +66,19 @@ const EXTENSION_LANGUAGE_MAP = new Map<string, string>([
   [".ripple", "html"],
 ]);
 
+function normalizeGlobPattern(pattern: string): string {
+  return pattern.replace(/\\/g, "/").trim();
+}
+
+function normalizeGlobList(globs?: string[]): string[] | undefined {
+  if (!globs) {
+    return undefined;
+  }
+  return globs
+    .map((glob) => normalizeGlobPattern(glob))
+    .filter((glob) => glob.length > 0);
+}
+
 function extractExtensions(pattern: string): string[] {
   const braceMatch = pattern.match(/\{([^}]+)\}/);
   if (braceMatch) {
@@ -89,11 +102,7 @@ export class CssVariableManager {
   private ignoreGlobs: string[];
   private lookupExtensions: Map<string, string>;
 
-  constructor(
-    logger?: Logger,
-    lookupFiles?: string[],
-    ignoreGlobs?: string[],
-  ) {
+  constructor(logger?: Logger, lookupFiles?: string[], ignoreGlobs?: string[]) {
     this.logger = logger || {
       log: (message: string) => {
         // Only log to console in debug mode
@@ -106,10 +115,17 @@ export class CssVariableManager {
         console.error(message);
       },
     };
+    const normalizedLookupFiles = normalizeGlobList(lookupFiles);
+    const normalizedIgnoreGlobs = normalizeGlobList(ignoreGlobs);
+
     this.lookupFiles =
-      lookupFiles && lookupFiles.length > 0 ? lookupFiles : DEFAULT_LOOKUP_FILES;
+      normalizedLookupFiles && normalizedLookupFiles.length > 0
+        ? normalizedLookupFiles
+        : DEFAULT_LOOKUP_FILES;
     this.ignoreGlobs =
-      ignoreGlobs && ignoreGlobs.length > 0 ? ignoreGlobs : DEFAULT_IGNORE_GLOBS;
+      normalizedIgnoreGlobs && normalizedIgnoreGlobs.length > 0
+        ? normalizedIgnoreGlobs
+        : DEFAULT_IGNORE_GLOBS;
     this.lookupExtensions = this.buildLookupExtensions(this.lookupFiles);
   }
 
@@ -512,11 +528,11 @@ export class CssVariableManager {
       }
 
       const content = fs.readFileSync(filePath, "utf-8");
-    const languageId = this.resolveLanguageId(filePath);
-    if (!languageId) {
-      // Skip unsupported file types
-      return;
-    }
+      const languageId = this.resolveLanguageId(filePath);
+      if (!languageId) {
+        // Skip unsupported file types
+        return;
+      }
 
       this.parseContent(content, uri, languageId);
       this.logger.log(`[css-lsp] Updated file ${uri} from disk.`);
