@@ -1,6 +1,6 @@
 {
   "name": "css-variable-lsp",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "A CSS Language Server for CSS Variables",
   "license": "GPL-3.0",
   "bin": {
@@ -8,6 +8,7 @@
   },
   "scripts": {
     "compile": "tsc -b",
+    "prepack": "npm run compile",
     "watch": "tsc -b -w",
     "test": "TS_NODE_PROJECT=tsconfig.test.json node --test --require ts-node/register tests/*.test.ts"
   },
