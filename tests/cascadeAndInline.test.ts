@@ -51,6 +51,19 @@ test("inline style parsing", () => {
   assert.strictEqual(primaryUsages[0].usageContext, "inline-style");
 });
 
+test("inline style definitions are tracked", () => {
+  const manager = new CssVariableManager();
+  const html =
+    '<div style="--inline-color: red; color: var(--inline-color);"></div>';
+  const doc = createDoc("file:///test.html", html, "html");
+  manager.parseDocument(doc);
+
+  const vars = manager.getVariables("--inline-color");
+  assert.strictEqual(vars.length, 1);
+  assert.strictEqual(vars[0].selector, "inline-style");
+  assert.ok(vars[0].inline);
+});
+
 test("combined cascade tracking", () => {
   const manager = new CssVariableManager();
   const css = `

@@ -16,9 +16,11 @@ export interface CssVariable {
   value: string;
   uri: string;
   range: Range; // Range of the entire declaration (e.g., "--foo: red")
+  nameRange?: Range; // Range of just the variable name (e.g., "--foo")
   valueRange?: Range; // Range of just the value part (e.g., "red")
   selector: string; // CSS selector where this variable is defined (e.g., ":root", "div", ".class")
   important: boolean; // Whether this definition uses !important
+  inline?: boolean; // Whether this definition is from an inline style attribute
   sourcePosition: number; // Character position in file (for source order)
 }
 
@@ -26,6 +28,7 @@ export interface CssVariableUsage {
   name: string;
   uri: string;
   range: Range;
+  nameRange?: Range;
   usageContext: string; // CSS selector where this variable is used
   domNode?: DOMNodeInfo; // DOM node if usage is in HTML
 }
@@ -346,6 +349,27 @@ export class CssVariableManager {
               );
               const endPos = document.positionAt(offset + node.loc.end.offset);
 
+              const declarationText = text.substring(
+                node.loc.start.offset,
+                node.loc.end.offset,
+              );
+              const colonIndex = declarationText.indexOf(":");
+              const declarationHeader =
+                colonIndex >= 0
+                  ? declarationText.slice(0, colonIndex)
+                  : declarationText;
+              const nameMatch = declarationHeader.match(/--[\w-]+/);
+              let nameRange: Range | undefined;
+              if (nameMatch && nameMatch.index !== undefined) {
+                const nameStartOffset =
+                  offset + node.loc.start.offset + nameMatch.index;
+                const nameEndOffset = nameStartOffset + nameMatch[0].length;
+                nameRange = Range.create(
+                  document.positionAt(nameStartOffset),
+                  document.positionAt(nameEndOffset),
+                );
+              }
+
               // Capture valueRange from node.value location
               let valueRange: Range | undefined;
               if (node.value && node.value.loc) {
@@ -377,9 +401,11 @@ export class CssVariableManager {
                 value,
                 uri,
                 range: Range.create(startPos, endPos),
+                nameRange,
                 valueRange,
                 selector,
                 important,
+                inline: false,
                 sourcePosition: offset + node.loc.start.offset,
               };
 
@@ -413,11 +439,22 @@ export class CssVariableManager {
                   const endPos = document.positionAt(
                     offset + node.loc.end.offset,
                   );
+                  let nameRange: Range | undefined;
+                  if (firstChild.loc) {
+                    const nameStartOffset =
+                      offset + firstChild.loc.start.offset;
+                    const nameEndOffset = offset + firstChild.loc.end.offset;
+                    nameRange = Range.create(
+                      document.positionAt(nameStartOffset),
+                      document.positionAt(nameEndOffset),
+                    );
+                  }
 
                   const usage: CssVariableUsage = {
                     name,
                     uri,
                     range: Range.create(startPos, endPos),
+                    nameRange,
                     usageContext,
                   };
 
@@ -465,6 +502,80 @@ export class CssVariableManager {
 
       csstree.walk(ast, {
         enter: (node: csstree.CssNode) => {
+          if (node.type === "Declaration" && node.property.startsWith("--")) {
+            const name = node.property;
+            const value = csstree.generate(node.value).trim();
+            const important =
+              node.important === true || node.important === "important";
+
+            if (node.loc) {
+              const startPos = document.positionAt(
+                offset + node.loc.start.offset,
+              );
+              const endPos = document.positionAt(offset + node.loc.end.offset);
+
+              const declarationText = text.substring(
+                node.loc.start.offset,
+                node.loc.end.offset,
+              );
+              const colonIndex = declarationText.indexOf(":");
+              const declarationHeader =
+                colonIndex >= 0
+                  ? declarationText.slice(0, colonIndex)
+                  : declarationText;
+              const nameMatch = declarationHeader.match(/--[\w-]+/);
+              let nameRange: Range | undefined;
+              if (nameMatch && nameMatch.index !== undefined) {
+                const nameStartOffset =
+                  offset + node.loc.start.offset + nameMatch.index;
+                const nameEndOffset = nameStartOffset + nameMatch[0].length;
+                nameRange = Range.create(
+                  document.positionAt(nameStartOffset),
+                  document.positionAt(nameEndOffset),
+                );
+              }
+
+              let valueRange: Range | undefined;
+              if (node.value && node.value.loc) {
+                const valueStartOffset = offset + node.value.loc.start.offset;
+                const valueEndOffset = offset + node.value.loc.end.offset;
+                const rawValueText = text.substring(
+                  node.value.loc.start.offset,
+                  node.value.loc.end.offset,
+                );
+                const leadingWhitespace =
+                  rawValueText.length - rawValueText.trimStart().length;
+                const trailingWhitespace =
+                  rawValueText.length - rawValueText.trimEnd().length;
+                const valueStartPos = document.positionAt(
+                  valueStartOffset + leadingWhitespace,
+                );
+                const valueEndPos = document.positionAt(
+                  valueEndOffset - trailingWhitespace,
+                );
+                valueRange = Range.create(valueStartPos, valueEndPos);
+              }
+
+              const variable: CssVariable = {
+                name,
+                value,
+                uri,
+                range: Range.create(startPos, endPos),
+                nameRange,
+                valueRange,
+                selector: "inline-style",
+                important,
+                inline: true,
+                sourcePosition: offset + node.loc.start.offset,
+              };
+
+              if (!this.variables.has(name)) {
+                this.variables.set(name, []);
+              }
+              this.variables.get(name)?.push(variable);
+            }
+          }
+
           if (node.type === "Function" && node.name === "var") {
             const children = node.children;
             if (children && children.first) {
@@ -482,6 +593,16 @@ export class CssVariableManager {
                   const endPos = document.positionAt(
                     offset + node.loc.end.offset,
                   );
+                  let nameRange: Range | undefined;
+                  if (firstChild.loc) {
+                    const nameStartOffset =
+                      offset + firstChild.loc.start.offset;
+                    const nameEndOffset = offset + firstChild.loc.end.offset;
+                    nameRange = Range.create(
+                      document.positionAt(nameStartOffset),
+                      document.positionAt(nameEndOffset),
+                    );
+                  }
 
                   // Try to find the DOM node for this inline style
                   const domTree = this.domTrees.get(uri);
@@ -492,6 +613,7 @@ export class CssVariableManager {
                     name,
                     uri,
                     range: Range.create(startPos, endPos),
+                    nameRange,
                     usageContext: "inline-style",
                     domNode: domNode,
                   };
@@ -646,6 +768,13 @@ export class CssVariableManager {
       // !important always wins (unless both are !important)
       if (a.important !== b.important) {
         return a.important ? -1 : 1;
+      }
+
+      // Inline styles win over non-inline styles
+      const aInline = a.inline ?? false;
+      const bInline = b.inline ?? false;
+      if (aInline !== bInline) {
+        return aInline ? -1 : 1;
       }
 
       // After !important, check specificity

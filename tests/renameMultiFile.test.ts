@@ -24,14 +24,11 @@ function getRenameEdits(
       changes[ref.uri] = [];
     }
 
-    // For definitions, replace the entire declaration
-    // For usages in var(), replace just the var() call
+    // Replace just the variable name to preserve formatting and fallbacks
+    const editRange = ref.nameRange ?? ref.range;
     const edit: TextEdit = {
-      range: ref.range,
-      newText:
-        "value" in ref
-          ? `${newName}: ${ref.value};` // Definition
-          : `var(${newName})`, // Usage
+      range: editRange,
+      newText: newName,
     };
 
     changes[ref.uri].push(edit);
@@ -59,19 +56,19 @@ test("rename variable across multiple files", () => {
   const varsEdits = edits.changes?.["file:///vars.css"];
   assert.ok(varsEdits);
   assert.strictEqual(varsEdits.length, 1);
-  assert.ok(varsEdits[0].newText.includes("--new-name: red"));
+  assert.strictEqual(varsEdits[0].newText, "--new-name");
   
   // Check styles.css has usage edit
   const stylesEdits = edits.changes?.["file:///styles.css"];
   assert.ok(stylesEdits);
   assert.strictEqual(stylesEdits.length, 1);
-  assert.strictEqual(stylesEdits[0].newText, "var(--new-name)");
+  assert.strictEqual(stylesEdits[0].newText, "--new-name");
   
   // Check components.css has usage edit
   const componentsEdits = edits.changes?.["file:///components.css"];
   assert.ok(componentsEdits);
   assert.strictEqual(componentsEdits.length, 1);
-  assert.strictEqual(componentsEdits[0].newText, "var(--new-name)");
+  assert.strictEqual(componentsEdits[0].newText, "--new-name");
 });
 
 test("rename variable with multiple definitions", () => {
@@ -88,8 +85,8 @@ test("rename variable with multiple definitions", () => {
   assert.ok(testEdits);
   // Should have 2 edits (both definitions)
   assert.strictEqual(testEdits.length, 2);
-  assert.ok(testEdits[0].newText.includes("--theme-color"));
-  assert.ok(testEdits[1].newText.includes("--theme-color"));
+  assert.strictEqual(testEdits[0].newText, "--theme-color");
+  assert.strictEqual(testEdits[1].newText, "--theme-color");
 });
 
 test("rename preserves !important flag", () => {
@@ -102,10 +99,7 @@ test("rename preserves !important flag", () => {
   const testEdits = edits.changes?.["file:///test.css"];
   assert.ok(testEdits);
   assert.strictEqual(testEdits.length, 1);
-  // Note: The current implementation might not preserve !important in the edit
-  // This test documents the expected behavior
-  assert.ok(testEdits[0].newText.includes("--critical"));
-  assert.ok(testEdits[0].newText.includes("red"));
+  assert.strictEqual(testEdits[0].newText, "--critical");
 });
 
 test("rename in HTML inline styles", () => {
@@ -126,7 +120,7 @@ test("rename in HTML inline styles", () => {
   const htmlEdits = edits.changes?.["file:///index.html"];
   assert.ok(htmlEdits);
   assert.strictEqual(htmlEdits.length, 1);
-  assert.strictEqual(htmlEdits[0].newText, "var(--html-color)");
+  assert.strictEqual(htmlEdits[0].newText, "--html-color");
 });
 
 test("rename in HTML style blocks", () => {
@@ -163,7 +157,7 @@ test("rename with no usages only renames definitions", () => {
   const testEdits = edits.changes?.["file:///test.css"];
   assert.ok(testEdits);
   assert.strictEqual(testEdits.length, 1);
-  assert.ok(testEdits[0].newText.includes("--still-unused: red"));
+  assert.strictEqual(testEdits[0].newText, "--still-unused");
 });
 
 test("rename with only usages and no definitions", () => {
@@ -177,7 +171,7 @@ test("rename with only usages and no definitions", () => {
   const testEdits = edits.changes?.["file:///test.css"];
   assert.ok(testEdits);
   assert.strictEqual(testEdits.length, 1);
-  assert.strictEqual(testEdits[0].newText, "var(--imported)");
+  assert.strictEqual(testEdits[0].newText, "--imported");
 });
 
 test("rename across CSS and HTML files", () => {
