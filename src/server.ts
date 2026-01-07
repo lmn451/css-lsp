@@ -7,7 +7,6 @@ import {
   DiagnosticSeverity,
   ProposedFeatures,
   InitializeParams,
-  DidChangeConfigurationNotification,
   CompletionItem,
   CompletionItemKind,
   TextDocumentPositionParams,
@@ -73,7 +72,6 @@ const cssVariableManager = new CssVariableManager(
   runtimeConfig.ignoreGlobs,
 );
 
-let hasConfigurationCapability = false;
 let hasWorkspaceFolderCapability = false;
 let hasDiagnosticRelatedInformationCapability = false;
 let workspaceFolderPaths: string[] = [];
@@ -90,11 +88,6 @@ connection.onInitialize((params: InitializeParams) => {
 
   const capabilities = params.capabilities;
 
-  // Does the client support the `workspace/configuration` request?
-  // If not, we fall back using global settings.
-  hasConfigurationCapability = !!(
-    capabilities.workspace && !!capabilities.workspace.configuration
-  );
   hasWorkspaceFolderCapability = !!(
     capabilities.workspace && !!capabilities.workspace.workspaceFolders
   );
@@ -121,13 +114,6 @@ connection.onInitialize((params: InitializeParams) => {
 });
 
 connection.onInitialized(async () => {
-  if (hasConfigurationCapability) {
-    // Register for all configuration changes.
-    connection.client.register(
-      DidChangeConfigurationNotification.type,
-      undefined,
-    );
-  }
   if (hasWorkspaceFolderCapability) {
     connection.workspace.onDidChangeWorkspaceFolders((_event) => {
       connection.console.log("Workspace folder change event received.");
@@ -168,50 +154,9 @@ connection.onInitialized(async () => {
   }
 });
 
-// The example settings
-interface ExampleSettings {
-  maxNumberOfProblems: number;
-}
-
-const defaultSettings: ExampleSettings = { maxNumberOfProblems: 1000 };
-let globalSettings: ExampleSettings = defaultSettings;
-
-// Cache the settings of all open documents
-const documentSettings: Map<string, Thenable<ExampleSettings>> = new Map();
-
-connection.onDidChangeConfiguration((change) => {
-  if (hasConfigurationCapability) {
-    // Reset all cached document settings
-    documentSettings.clear();
-  } else {
-    globalSettings = <ExampleSettings>(
-      (change.settings.cssVariableLsp || defaultSettings)
-    );
-  }
-
-  // Revalidate all open text documents
-  documents.all().forEach(validateTextDocument);
-});
-
-function getDocumentSettings(resource: string): Thenable<ExampleSettings> {
-  if (!hasConfigurationCapability) {
-    return Promise.resolve(globalSettings);
-  }
-  let result = documentSettings.get(resource);
-  if (!result) {
-    result = connection.workspace.getConfiguration({
-      scopeUri: resource,
-      section: "cssVariableLsp",
-    });
-    documentSettings.set(resource, result);
-  }
-  return result;
-}
-
-// Only keep settings for open documents
+// Handle document close events
 documents.onDidClose(async (e) => {
   connection.console.log(`[css-lsp] Document closed: ${e.document.uri}`);
-  documentSettings.delete(e.document.uri);
   // When a document is closed, we need to revert to the file system version
   // instead of removing it completely (which would break workspace files).
   // This handles cases where the editor had unsaved changes.
@@ -717,6 +662,13 @@ connection.onHover((params) => {
         return a.important ? -1 : 1;
       }
 
+      // Inline styles win over non-inline styles
+      const aInline = a.inline ?? false;
+      const bInline = b.inline ?? false;
+      if (aInline !== bInline) {
+        return aInline ? -1 : 1;
+      }
+
       // After !important, check specificity
       const specA = calculateSpecificity(a.selector);
       const specB = calculateSpecificity(b.selector);
@@ -907,14 +859,11 @@ connection.onRenameRequest((params) => {
         changes[ref.uri] = [];
       }
 
-      // For definitions, just replace the variable name
-      // For usages in var(), replace just the variable name part
+      // Replace just the variable name to preserve formatting/fallbacks
+      const editRange = ref.nameRange ?? ref.range;
       const edit: TextEdit = {
-        range: ref.range,
-        newText:
-          "value" in ref
-            ? `${params.newName}: ${ref.value};` // Definition
-            : `var(${params.newName})`, // Usage
+        range: editRange,
+        newText: params.newName,
       };
 
       changes[ref.uri].push(edit);
