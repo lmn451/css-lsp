@@ -69,6 +69,16 @@ const EXTENSION_LANGUAGE_MAP = new Map<string, string>([
   [".ripple", "html"],
 ]);
 
+const HTML_LIKE_LANGUAGE_IDS = new Set([
+  "html",
+  "vue",
+  "svelte",
+  "astro",
+  "ripple",
+]);
+
+const CSS_LANGUAGE_IDS = new Set(["css", "scss", "sass", "less"]);
+
 function normalizeGlobPattern(pattern: string): string {
   return pattern.replace(/\\/g, "/").trim();
 }
@@ -151,6 +161,19 @@ export class CssVariableManager {
     return this.lookupExtensions.get(ext) ?? null;
   }
 
+  private resolveDocumentLanguageId(languageId: string, uri: string): string {
+    if (HTML_LIKE_LANGUAGE_IDS.has(languageId)) {
+      return "html";
+    }
+
+    if (CSS_LANGUAGE_IDS.has(languageId)) {
+      return languageId;
+    }
+
+    const filePath = URI.parse(uri).fsPath;
+    return this.resolveLanguageId(filePath) ?? languageId;
+  }
+
   /**
    * Scan all CSS and HTML files in the workspace
    * @param workspaceFolders Array of workspace folder URIs
@@ -225,7 +248,9 @@ export class CssVariableManager {
     // Clear existing variables and usages for this document
     this.removeFile(uri);
 
-    if (languageId === "html") {
+    const resolvedLanguageId = this.resolveDocumentLanguageId(languageId, uri);
+
+    if (resolvedLanguageId === "html") {
       // Build DOM tree for HTML documents
       try {
         const domTree = new DOMTree(text);
@@ -246,7 +271,7 @@ export class CssVariableManager {
           },
         });
 
-        const document = TextDocument.create(uri, languageId, 1, text);
+        const document = TextDocument.create(uri, resolvedLanguageId, 1, text);
 
         // Parse <style> blocks
         const styleElements = root.querySelectorAll("style");
@@ -297,7 +322,7 @@ export class CssVariableManager {
       }
     } else {
       // CSS, SCSS, SASS, LESS
-      const document = TextDocument.create(uri, languageId, 1, text);
+      const document = TextDocument.create(uri, resolvedLanguageId, 1, text);
       this.parseCssText(text, uri, document, 0);
     }
   }

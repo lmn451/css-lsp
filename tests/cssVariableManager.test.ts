@@ -33,6 +33,43 @@ test("HTML style extraction", () => {
   assert.strictEqual(vars[0].value, "blue");
 });
 
+test("HTML-like language ids parse embedded styles", () => {
+  const manager = new CssVariableManager();
+  const vueContent = `
+<template>
+  <div style="--inline-color: red;"></div>
+</template>
+<style>
+  :root { --vue-color: blue; }
+</style>`;
+  const doc = createDoc("file:///test.vue", vueContent, "vue");
+  manager.parseDocument(doc);
+
+  const styleVars = manager.getVariables("--vue-color");
+  assert.strictEqual(styleVars.length, 1);
+  assert.strictEqual(styleVars[0].value, "blue");
+
+  const inlineVars = manager.getVariables("--inline-color");
+  assert.strictEqual(inlineVars.length, 1);
+  assert.strictEqual(inlineVars[0].selector, "inline-style");
+});
+
+test("unknown language ids fall back to file extension", () => {
+  const manager = new CssVariableManager();
+  const htmlContent = `
+<html>
+  <body>
+    <div style="--fallback-color: green;"></div>
+  </body>
+</html>`;
+  const doc = createDoc("file:///test.html", htmlContent, "plaintext");
+  manager.parseDocument(doc);
+
+  const inlineVars = manager.getVariables("--fallback-color");
+  assert.strictEqual(inlineVars.length, 1);
+  assert.strictEqual(inlineVars[0].value, "green");
+});
+
 test("multiple variables and updates", () => {
   const manager = new CssVariableManager();
   const doc = createDoc(
