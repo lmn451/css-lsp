@@ -10,9 +10,9 @@ function createDoc(uri: string, content: string, languageId: string = "css") {
 test("color resolution respects !important flag", () => {
   const manager = new CssVariableManager();
   const css = `
-    :root { --color: red; }
-    div { --color: blue !important; }
-    .class { --color: green; }
+    :root { --color: #ff0000; }
+    div { --color: #0000ff !important; }
+    .class { --color: #00ff00; }
   `;
   manager.parseContent(css, "file:///test.css", "css");
 
@@ -27,9 +27,9 @@ test("color resolution respects !important flag", () => {
 test("color resolution uses specificity when no !important", () => {
   const manager = new CssVariableManager();
   const css = `
-    :root { --color: red; }
-    div { --color: green; }
-    #id { --color: blue; }
+    :root { --color: #ff0000; }
+    div { --color: #00ff00; }
+    #id { --color: #0000ff; }
   `;
   manager.parseContent(css, "file:///test.css", "css");
 
@@ -44,8 +44,8 @@ test("color resolution uses specificity when no !important", () => {
 test("color resolution uses source order for equal specificity", () => {
   const manager = new CssVariableManager();
   const css = `
-    :root { --color: red; }
-    :root { --color: blue; }
+    :root { --color: #ff0000; }
+    :root { --color: #0000ff; }
   `;
   manager.parseContent(css, "file:///test.css", "css");
 
@@ -110,11 +110,11 @@ test("color resolution handles multi-level variable chains", () => {
 test("color resolution combines cascade rules correctly", () => {
   const manager = new CssVariableManager();
   const css = `
-    :root { --color: red; }
-    div { --color: green; }
-    .class { --color: blue; }
-    #id { --color: yellow !important; }
-    body { --color: purple; }
+    :root { --color: #ff0000; }
+    div { --color: #00ff00; }
+    .class { --color: #0000ff; }
+    #id { --color: #ffff00 !important; }
+    body { --color: #800080; }
   `;
   manager.parseContent(css, "file:///test.css", "css");
 
@@ -129,8 +129,16 @@ test("color resolution combines cascade rules correctly", () => {
 test("color resolution works across multiple files", () => {
   const manager = new CssVariableManager();
   
-  manager.parseContent(":root { --primary: red; }", "file:///base.css", "css");
-  manager.parseContent("div { --primary: blue; }", "file:///override.css", "css");
+  manager.parseContent(
+    ":root { --primary: #ff0000; }",
+    "file:///base.css",
+    "css"
+  );
+  manager.parseContent(
+    "div { --primary: #0000ff; }",
+    "file:///override.css",
+    "css"
+  );
 
   const color = manager.resolveVariableColor("--primary");
   assert.ok(color);
@@ -193,8 +201,8 @@ test("color resolution returns null for non-color values", () => {
 test("color resolution with !important overrides higher specificity", () => {
   const manager = new CssVariableManager();
   const css = `
-    #high-specificity { --color: red; }
-    div { --color: blue !important; }
+    #high-specificity { --color: #ff0000; }
+    div { --color: #0000ff !important; }
   `;
   manager.parseContent(css, "file:///test.css", "css");
 

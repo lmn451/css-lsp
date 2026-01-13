@@ -22,7 +22,7 @@ export interface ColorProviderOptions {
 export function collectDocumentColors(
   document: TextDocument,
   cssVariableManager: CssVariableManager,
-  options: ColorProviderOptions,
+  options: ColorProviderOptions
 ): ColorInformation[] {
   if (!options.enabled) {
     return [];
@@ -48,7 +48,7 @@ export function collectDocumentColors(
           // Fallback: find the value within the declaration text
           const defText = text.substring(
             document.offsetAt(def.range.start),
-            document.offsetAt(def.range.end),
+            document.offsetAt(def.range.end)
           );
           const colonIndex = defText.indexOf(":");
           if (colonIndex !== -1) {
@@ -63,7 +63,7 @@ export function collectDocumentColors(
                 valueIndex;
               const start = document.positionAt(absoluteValueStart);
               const end = document.positionAt(
-                absoluteValueStart + def.value.trim().length,
+                absoluteValueStart + def.value.trim().length
               );
               colors.push({
                 range: { start, end },
@@ -78,11 +78,12 @@ export function collectDocumentColors(
 
   // 2. Check variable usages: var(--my-color)
   // Always show color boxes on var() usages (resolved CSS variable color)
-  const regex = /var\((--[\w-]+)\)/g;
+  const regex = /var\(\s*(--[\w-]+)\s*(?:,\s*[^)]+)?\s*\)/g;
   let match;
   while ((match = regex.exec(text)) !== null) {
     const varName = match[1];
     const color = cssVariableManager.resolveVariableColor(varName);
+
     if (color) {
       const start = document.positionAt(match.index);
       const end = document.positionAt(match.index + match[0].length);
@@ -93,13 +94,67 @@ export function collectDocumentColors(
     }
   }
 
-  return colors;
+  // 3. Deduplicate overlapping same-color ranges to avoid double boxes.
+  const uniqueColors: ColorInformation[] = [];
+  const uniqueOffsets: Array<{
+    start: number;
+    end: number;
+    color: Color;
+  }> = [];
+
+  for (const colorInfo of colors) {
+    const start = document.offsetAt(colorInfo.range.start);
+    const end = document.offsetAt(colorInfo.range.end);
+
+    let isDuplicate = false;
+    for (let i = 0; i < uniqueOffsets.length; i++) {
+      const existing = uniqueOffsets[i];
+      if (
+        colorsEqual(existing.color, colorInfo.color) &&
+        rangesOverlap(existing.start, existing.end, start, end)
+      ) {
+        const existingLen = existing.end - existing.start;
+        const currentLen = end - start;
+        if (currentLen < existingLen) {
+          uniqueOffsets[i] = { start, end, color: colorInfo.color };
+          uniqueColors[i] = colorInfo;
+        }
+        isDuplicate = true;
+        break;
+      }
+    }
+
+    if (!isDuplicate) {
+      uniqueOffsets.push({ start, end, color: colorInfo.color });
+      uniqueColors.push(colorInfo);
+    }
+  }
+
+  return uniqueColors;
+}
+
+function colorsEqual(a: Color, b: Color): boolean {
+  return (
+    a.red === b.red &&
+    a.green === b.green &&
+    a.blue === b.blue &&
+    a.alpha === b.alpha
+  );
+}
+
+function rangesOverlap(
+  aStart: number,
+  aEnd: number,
+  bStart: number,
+  bEnd: number
+): boolean {
+  return aStart < bEnd && bStart < aEnd;
 }
 
 export function collectColorPresentations(
   range: Range,
   color: Color,
-  enabled: boolean,
+  enabled: boolean
 ): ColorPresentation[] {
   if (!enabled) {
     return [];
@@ -110,19 +165,19 @@ export function collectColorPresentations(
   // 1. Hex format (most common)
   const hexStr = formatColorAsHex(color);
   presentations.push(
-    ColorPresentation.create(hexStr, TextEdit.replace(range, hexStr)),
+    ColorPresentation.create(hexStr, TextEdit.replace(range, hexStr))
   );
 
   // 2. RGB format
   const rgbStr = formatColorAsRgb(color);
   presentations.push(
-    ColorPresentation.create(rgbStr, TextEdit.replace(range, rgbStr)),
+    ColorPresentation.create(rgbStr, TextEdit.replace(range, rgbStr))
   );
 
   // 3. HSL format
   const hslStr = formatColorAsHsl(color);
   presentations.push(
-    ColorPresentation.create(hslStr, TextEdit.replace(range, hslStr)),
+    ColorPresentation.create(hslStr, TextEdit.replace(range, hslStr))
   );
 
   return presentations;

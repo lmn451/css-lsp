@@ -1,10 +1,17 @@
 import { Color } from "vscode-languageserver/node";
 
+export interface ParseColorOptions {
+  allowNamedColors?: boolean;
+}
+
 /**
  * Parse a CSS color string into an LSP Color object.
- * Supports hex, rgb, rgba, hsl, hsla, and named colors.
+ * Supports hex, rgb, rgba, hsl, hsla. Named colors are optional.
  */
-export function parseColor(value: string): Color | null {
+export function parseColor(
+  value: string,
+  options: ParseColorOptions = {}
+): Color | null {
   value = value.trim().toLowerCase();
 
   // Hex
@@ -22,8 +29,12 @@ export function parseColor(value: string): Color | null {
     return parseHsl(value);
   }
 
-  // Named colors
-  return parseNamedColor(value);
+  // Named colors (optional)
+  if (options.allowNamedColors) {
+    return parseNamedColor(value);
+  }
+
+  return null;
 }
 
 /**

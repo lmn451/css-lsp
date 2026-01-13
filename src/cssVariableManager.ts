@@ -106,6 +106,14 @@ function extractExtensions(pattern: string): string[] {
   return ext ? [ext] : [];
 }
 
+function normalizeUri(uri: string): string {
+  try {
+    return URI.parse(uri).toString().toLowerCase();
+  } catch (e) {
+    return uri.toLowerCase();
+  }
+}
+
 export class CssVariableManager {
   private variables: Map<string, CssVariable[]> = new Map();
   private usages: Map<string, CssVariableUsage[]> = new Map();
@@ -181,7 +189,7 @@ export class CssVariableManager {
    */
   public async scanWorkspace(
     workspaceFolders: string[],
-    onProgress?: (current: number, total: number) => void,
+    onProgress?: (current: number, total: number) => void
   ): Promise<void> {
     // First, collect all files from all folders
     const allFiles: string[] = [];
@@ -198,7 +206,7 @@ export class CssVariableManager {
       });
 
       this.logger.log(
-        `[css-lsp] Scanned ${folder}: found ${files.length} files`,
+        `[css-lsp] Scanned ${folder}: found ${files.length} files`
       );
       allFiles.push(...files);
     }
@@ -220,7 +228,7 @@ export class CssVariableManager {
         this.parseContent(content, fileUri, languageId);
       } catch (error) {
         this.logger.error(
-          `[css-lsp] Error scanning file ${filePath}: ${error}`,
+          `[css-lsp] Error scanning file ${filePath}: ${error}`
         );
       }
 
@@ -236,7 +244,7 @@ export class CssVariableManager {
     }
 
     this.logger.log(
-      `[css-lsp] Workspace scan complete. Processed ${totalFiles} files.`,
+      `[css-lsp] Workspace scan complete. Processed ${totalFiles} files.`
     );
   }
 
@@ -245,10 +253,13 @@ export class CssVariableManager {
   }
 
   public parseContent(text: string, uri: string, languageId: string): void {
-    // Clear existing variables and usages for this document
-    this.removeFile(uri);
+    const normalizedUri = normalizeUri(uri);
+    this.removeFile(normalizedUri);
 
-    const resolvedLanguageId = this.resolveDocumentLanguageId(languageId, uri);
+    const resolvedLanguageId = this.resolveDocumentLanguageId(
+      languageId,
+      normalizedUri
+    );
 
     if (resolvedLanguageId === "html") {
       // Build DOM tree for HTML documents
@@ -283,7 +294,7 @@ export class CssVariableManager {
             // We need to find where the content starts (after the opening tag)
             const elementText = text.substring(
               styleEl.range[0],
-              styleEl.range[1],
+              styleEl.range[1]
             );
             const openingTagEnd = elementText.indexOf(">") + 1;
             const styleStartOffset = styleEl.range[0] + openingTagEnd;
@@ -311,7 +322,7 @@ export class CssVariableManager {
                   uri,
                   document,
                   styleStartOffset,
-                  attributeOffset,
+                  attributeOffset
                 );
               }
             }
@@ -331,14 +342,14 @@ export class CssVariableManager {
     text: string,
     uri: string,
     document: TextDocument,
-    offset: number,
+    offset: number
   ): void {
     try {
       const ast = csstree.parse(text, {
         positions: true,
         onParseError: (error) => {
           this.logger.log(
-            `[css-lsp] CSS Parse Error in ${uri}: ${error.message}`,
+            `[css-lsp] CSS Parse Error in ${uri}: ${error.message}`
           );
         },
       });
@@ -370,13 +381,13 @@ export class CssVariableManager {
 
             if (node.loc) {
               const startPos = document.positionAt(
-                offset + node.loc.start.offset,
+                offset + node.loc.start.offset
               );
               const endPos = document.positionAt(offset + node.loc.end.offset);
 
               const declarationText = text.substring(
                 node.loc.start.offset,
-                node.loc.end.offset,
+                node.loc.end.offset
               );
               const colonIndex = declarationText.indexOf(":");
               const declarationHeader =
@@ -391,7 +402,7 @@ export class CssVariableManager {
                 const nameEndOffset = nameStartOffset + nameMatch[0].length;
                 nameRange = Range.create(
                   document.positionAt(nameStartOffset),
-                  document.positionAt(nameEndOffset),
+                  document.positionAt(nameEndOffset)
                 );
               }
 
@@ -403,7 +414,7 @@ export class CssVariableManager {
                 const valueEndOffset = offset + node.value.loc.end.offset;
                 const rawValueText = text.substring(
                   valueStartOffset,
-                  valueEndOffset,
+                  valueEndOffset
                 );
 
                 // Trim leading/trailing whitespace to get the actual value position
@@ -413,10 +424,10 @@ export class CssVariableManager {
                   rawValueText.length - rawValueText.trimEnd().length;
 
                 const valueStartPos = document.positionAt(
-                  valueStartOffset + leadingWhitespace,
+                  valueStartOffset + leadingWhitespace
                 );
                 const valueEndPos = document.positionAt(
-                  valueEndOffset - trailingWhitespace,
+                  valueEndOffset - trailingWhitespace
                 );
                 valueRange = Range.create(valueStartPos, valueEndPos);
               }
@@ -459,10 +470,10 @@ export class CssVariableManager {
 
                 if (node.loc) {
                   const startPos = document.positionAt(
-                    offset + node.loc.start.offset,
+                    offset + node.loc.start.offset
                   );
                   const endPos = document.positionAt(
-                    offset + node.loc.end.offset,
+                    offset + node.loc.end.offset
                   );
                   let nameRange: Range | undefined;
                   if (firstChild.loc) {
@@ -471,7 +482,7 @@ export class CssVariableManager {
                     const nameEndOffset = offset + firstChild.loc.end.offset;
                     nameRange = Range.create(
                       document.positionAt(nameStartOffset),
-                      document.positionAt(nameEndOffset),
+                      document.positionAt(nameEndOffset)
                     );
                   }
 
@@ -512,7 +523,7 @@ export class CssVariableManager {
     uri: string,
     document: TextDocument,
     offset: number,
-    attributeOffset: number,
+    attributeOffset: number
   ): void {
     try {
       const ast = csstree.parse(text, {
@@ -520,7 +531,7 @@ export class CssVariableManager {
         positions: true,
         onParseError: (error) => {
           this.logger.log(
-            `[css-lsp] Inline Style Parse Error in ${uri}: ${error.message}`,
+            `[css-lsp] Inline Style Parse Error in ${uri}: ${error.message}`
           );
         },
       });
@@ -535,13 +546,13 @@ export class CssVariableManager {
 
             if (node.loc) {
               const startPos = document.positionAt(
-                offset + node.loc.start.offset,
+                offset + node.loc.start.offset
               );
               const endPos = document.positionAt(offset + node.loc.end.offset);
 
               const declarationText = text.substring(
                 node.loc.start.offset,
-                node.loc.end.offset,
+                node.loc.end.offset
               );
               const colonIndex = declarationText.indexOf(":");
               const declarationHeader =
@@ -556,7 +567,7 @@ export class CssVariableManager {
                 const nameEndOffset = nameStartOffset + nameMatch[0].length;
                 nameRange = Range.create(
                   document.positionAt(nameStartOffset),
-                  document.positionAt(nameEndOffset),
+                  document.positionAt(nameEndOffset)
                 );
               }
 
@@ -566,17 +577,17 @@ export class CssVariableManager {
                 const valueEndOffset = offset + node.value.loc.end.offset;
                 const rawValueText = text.substring(
                   node.value.loc.start.offset,
-                  node.value.loc.end.offset,
+                  node.value.loc.end.offset
                 );
                 const leadingWhitespace =
                   rawValueText.length - rawValueText.trimStart().length;
                 const trailingWhitespace =
                   rawValueText.length - rawValueText.trimEnd().length;
                 const valueStartPos = document.positionAt(
-                  valueStartOffset + leadingWhitespace,
+                  valueStartOffset + leadingWhitespace
                 );
                 const valueEndPos = document.positionAt(
-                  valueEndOffset - trailingWhitespace,
+                  valueEndOffset - trailingWhitespace
                 );
                 valueRange = Range.create(valueStartPos, valueEndPos);
               }
@@ -613,10 +624,10 @@ export class CssVariableManager {
 
                 if (node.loc) {
                   const startPos = document.positionAt(
-                    offset + node.loc.start.offset,
+                    offset + node.loc.start.offset
                   );
                   const endPos = document.positionAt(
-                    offset + node.loc.end.offset,
+                    offset + node.loc.end.offset
                   );
                   let nameRange: Range | undefined;
                   if (firstChild.loc) {
@@ -625,7 +636,7 @@ export class CssVariableManager {
                     const nameEndOffset = offset + firstChild.loc.end.offset;
                     nameRange = Range.create(
                       document.positionAt(nameStartOffset),
-                      document.positionAt(nameEndOffset),
+                      document.positionAt(nameEndOffset)
                     );
                   }
 
@@ -663,7 +674,7 @@ export class CssVariableManager {
       const filePath = URI.parse(uri).fsPath;
       if (!fs.existsSync(filePath)) {
         this.logger.log(
-          `[css-lsp] File ${uri} does not exist on disk, removing from manager.`,
+          `[css-lsp] File ${uri} does not exist on disk, removing from manager.`
         );
         this.removeFile(uri);
         return;
@@ -689,28 +700,35 @@ export class CssVariableManager {
   }
 
   public removeFile(uri: string): void {
-    this.clearDocumentVariables(uri);
-    this.clearDocumentUsages(uri);
-    this.clearDocumentDOMTree(uri);
+    const normalizedUri = normalizeUri(uri);
+    this.clearDocumentVariables(normalizedUri);
+    this.clearDocumentUsages(normalizedUri);
+    this.clearDocumentDOMTree(normalizedUri);
   }
 
   public clearDocumentVariables(uri: string): void {
+    const normalizedUri = normalizeUri(uri);
     for (const [name, vars] of this.variables.entries()) {
-      const filtered = vars.filter((v) => v.uri !== uri);
+      const filtered = vars.filter(
+        (v) => normalizeUri(v.uri) !== normalizedUri
+      );
       if (filtered.length === 0) {
         this.variables.delete(name);
-      } else {
+      } else if (filtered.length !== vars.length) {
         this.variables.set(name, filtered);
       }
     }
   }
 
   public clearDocumentUsages(uri: string): void {
+    const normalizedUri = normalizeUri(uri);
     for (const [name, usgs] of this.usages.entries()) {
-      const filtered = usgs.filter((u) => u.uri !== uri);
+      const filtered = usgs.filter(
+        (u) => normalizeUri(u.uri) !== normalizedUri
+      );
       if (filtered.length === 0) {
         this.usages.delete(name);
-      } else {
+      } else if (filtered.length !== usgs.length) {
         this.usages.set(name, filtered);
       }
     }
@@ -725,6 +743,7 @@ export class CssVariableManager {
     for (const vars of this.variables.values()) {
       allVars.push(...vars);
     }
+    // this.logger.log(`[css-lsp] getAllVariables: returning ${allVars.length} variables`);
     return allVars;
   }
 
@@ -756,8 +775,9 @@ export class CssVariableManager {
    * Get all variable definitions in a specific document (for document symbols)
    */
   public getDocumentDefinitions(uri: string): CssVariable[] {
+    const normalizedUri = normalizeUri(uri);
     const allVars = this.getAllVariables();
-    return allVars.filter((v) => v.uri === uri);
+    return allVars.filter((v) => normalizeUri(v.uri) === normalizedUri);
   }
 
   /**
@@ -775,7 +795,7 @@ export class CssVariableManager {
   public resolveVariableColor(
     name: string,
     context?: string,
-    seen = new Set<string>(),
+    seen = new Set<string>()
   ): Color | null {
     if (seen.has(name)) {
       return null; // Cycle detected
@@ -820,9 +840,11 @@ export class CssVariableManager {
     let value = variable.value;
 
     // Check if it's a reference to another variable
-    const match = value.match(/^var\((--[\w-]+)\)$/);
-    if (match) {
-      return this.resolveVariableColor(match[1], context, seen);
+    const recursiveMatch = value.match(
+      /var\(\s*(--[\w-]+)\s*(?:,\s*[^)]+)?\s*\)/
+    );
+    if (recursiveMatch) {
+      return this.resolveVariableColor(recursiveMatch[1], context, seen);
     }
 
     return parseColor(value);
