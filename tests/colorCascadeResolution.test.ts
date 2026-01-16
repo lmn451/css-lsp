@@ -190,12 +190,18 @@ test("color resolution returns null for non-color values", () => {
     :root {
       --spacing: 10px;
       --font: Arial;
+      --size: small;
+      --ui-font: system-ui;
+      --state: error;
     }
   `;
   manager.parseContent(css, "file:///test.css", "css");
 
   assert.strictEqual(manager.resolveVariableColor("--spacing"), null);
   assert.strictEqual(manager.resolveVariableColor("--font"), null);
+  assert.strictEqual(manager.resolveVariableColor("--size"), null);
+  assert.strictEqual(manager.resolveVariableColor("--ui-font"), null);
+  assert.strictEqual(manager.resolveVariableColor("--state"), null);
 });
 
 test("color resolution with !important overrides higher specificity", () => {

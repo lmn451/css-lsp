@@ -63,3 +63,29 @@ test("collectColorPresentations honors enabled flag", () => {
   assert.deepEqual(disabled, []);
   assert.equal(enabled.length, 3);
 });
+
+test("collectDocumentColors resolves named color variables", () => {
+  const manager = new CssVariableManager();
+  const uri = "file:///colors-named.css";
+  const css = `
+:root { --primary: red; }
+.btn { color: var(--primary); }
+`;
+  const doc = createDoc(uri, css);
+  manager.parseDocument(doc);
+
+  const colors = collectDocumentColors(doc, manager, {
+    enabled: true,
+    onlyVariables: false,
+  });
+
+  assert.equal(colors.length, 2);
+  assert.ok(
+    colors.every(
+      (entry) =>
+        entry.color.red === 1 &&
+        entry.color.green === 0 &&
+        entry.color.blue === 0
+    )
+  );
+});

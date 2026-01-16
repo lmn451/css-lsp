@@ -36,7 +36,7 @@ export function collectDocumentColors(
   if (!options.onlyVariables) {
     const definitions = cssVariableManager.getDocumentDefinitions(document.uri);
     for (const def of definitions) {
-      const color = parseColor(def.value);
+      const color = parseColor(def.value, { allowNamedColors: true });
       if (color) {
         // Use the stored valueRange if available (accurate from csstree parsing)
         if (def.valueRange) {

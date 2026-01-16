@@ -847,6 +847,6 @@ export class CssVariableManager {
       return this.resolveVariableColor(recursiveMatch[1], context, seen);
     }
 
-    return parseColor(value);
+    return parseColor(value, { allowNamedColors: true });
   }
 }

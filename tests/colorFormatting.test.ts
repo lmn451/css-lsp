@@ -4,6 +4,7 @@ import {
   formatColorAsHex,
   formatColorAsRgb,
   formatColorAsHsl,
+  parseColor,
 } from "../src/colorService";
 import { CssVariableManager } from "../src/cssVariableManager";
 import { TextDocument } from "vscode-languageserver-textdocument";
@@ -24,6 +25,17 @@ test("color formatting", () => {
     formatColorAsHsl(semiTransparent),
     "hsla(120, 100%, 50%, 0.5)",
   );
+});
+
+test("parseColor ignores named colors by default", () => {
+  const named = parseColor("red");
+  assert.strictEqual(named, null);
+
+  const enabled = parseColor("red", { allowNamedColors: true });
+  assert.ok(enabled);
+  assert.strictEqual(enabled?.red, 1);
+  assert.strictEqual(enabled?.green, 0);
+  assert.strictEqual(enabled?.blue, 0);
 });
 
 test("value range calculation", () => {
