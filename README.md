@@ -9,7 +9,7 @@ A Language Server Protocol (LSP) implementation focused on CSS custom properties
 - **Cascade-aware hover** that orders definitions by `!important`, specificity, and source order.
 - **Go to definition**, **find references**, and **rename** support.
 - **Diagnostics** for undefined variables used via `var(--name)`.
-- **Color decorations** and a color picker with hex/rgb/hsl presentations.
+- **Color decorations** and a color picker with hex/rgb/hsl presentations, including named colors in custom property values and resolved `var(--...)` usages.
 
 ## Getting Started
 
