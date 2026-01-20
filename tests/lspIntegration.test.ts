@@ -2,6 +2,7 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import * as path from "node:path";
+import { TextDocument } from "vscode-languageserver-textdocument";
 
 interface LspMessage {
   jsonrpc: "2.0";
@@ -101,6 +102,35 @@ class LspClient {
     this.send({ jsonrpc: "2.0", method, params });
   }
 
+  waitForNotification(
+    method: string,
+    predicate?: (params: unknown) => boolean,
+    timeoutMs = 2000,
+  ): Promise<LspMessage> {
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(new Error(`Timed out waiting for ${method}`));
+      }, timeoutMs);
+
+      const loop = async () => {
+        while (true) {
+          const message = await this.nextMessage();
+          if (message.method !== method) {
+            continue;
+          }
+          if (predicate && !predicate(message.params)) {
+            continue;
+          }
+          clearTimeout(timeoutId);
+          resolve(message);
+          return;
+        }
+      };
+
+      void loop();
+    });
+  }
+
   async request(method: string, params?: unknown): Promise<LspMessage> {
     const id = this.nextId++;
     this.send({ jsonrpc: "2.0", id, method, params });
@@ -172,6 +202,14 @@ async function initializeClient(client: LspClient) {
   return response;
 }
 
+function fullDocumentRange(text: string) {
+  const doc = TextDocument.create("file:///range.css", "css", 1, text);
+  return {
+    start: { line: 0, character: 0 },
+    end: doc.positionAt(text.length),
+  };
+}
+
 test(
   "initialize advertises color provider disabled with --no-color-preview",
   async () => {
@@ -186,6 +224,73 @@ test(
     }
   },
 );
+
+test("diagnostics revalidate across open documents", async () => {
+  const { child, client } = startServer();
+  try {
+    await initializeClient(client);
+
+    const varsUri = "file:///vars.scss";
+    const mainUri = "file:///main.scss";
+    const varsV1 = ":root { --accent: red; }\n";
+    const main = ".btn { color: var(--accent-missing); }\n";
+
+    client.notify("textDocument/didOpen", {
+      textDocument: {
+        uri: varsUri,
+        languageId: "scss",
+        version: 1,
+        text: varsV1,
+      },
+    });
+    client.notify("textDocument/didOpen", {
+      textDocument: {
+        uri: mainUri,
+        languageId: "scss",
+        version: 1,
+        text: main,
+      },
+    });
+
+    const initial = await client.waitForNotification(
+      "textDocument/publishDiagnostics",
+      (params) => (params as { uri?: string }).uri === mainUri,
+    );
+    const initialDiagnostics = (
+      initial.params as { diagnostics: unknown[] }
+    ).diagnostics;
+    assert.equal(initialDiagnostics.length, 1);
+
+    const varsV2 = ":root { --accent-missing: red; }\n";
+    client.notify("textDocument/didChange", {
+      textDocument: {
+        uri: varsUri,
+        version: 2,
+      },
+      contentChanges: [
+        {
+          range: fullDocumentRange(varsV1),
+          text: varsV2,
+        },
+      ],
+    });
+
+    const updated = await client.waitForNotification(
+      "textDocument/publishDiagnostics",
+      (params) => {
+        const payload = params as { uri?: string; diagnostics?: unknown[] };
+        return payload.uri === mainUri && Array.isArray(payload.diagnostics);
+      },
+      3000,
+    );
+    const updatedDiagnostics = (
+      updated.params as { diagnostics: unknown[] }
+    ).diagnostics;
+    assert.equal(updatedDiagnostics.length, 0);
+  } finally {
+    await stopServer(child, client);
+  }
+});
 
 test(
   "documentColor responds when enabled and is empty when disabled",

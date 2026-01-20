@@ -165,17 +165,11 @@ documents.onDidClose(async (e) => {
 
 // Debounce map for validation (per document URI)
 const validationTimeouts: Map<string, NodeJS.Timeout> = new Map();
+let validateAllTimeout: NodeJS.Timeout | null = null;
 
-// The content of a text document has changed. This event is emitted
-// when the text document first opened or when its content has changed.
-// Note: We don't need a separate onDidOpen handler because onDidChangeContent
-// already fires when a document is first opened, avoiding double-parsing.
-documents.onDidChangeContent((change) => {
-  // Parse immediately (needed for completion/hover)
-  cssVariableManager.parseDocument(change.document);
-
+function scheduleValidation(textDocument: TextDocument): void {
   // Debounce validation to avoid excessive diagnostic updates while typing
-  const uri = change.document.uri;
+  const uri = textDocument.uri;
 
   // Clear existing timeout for this document
   const existingTimeout = validationTimeouts.get(uri);
@@ -185,11 +179,39 @@ documents.onDidChangeContent((change) => {
 
   // Schedule validation after 300ms of inactivity
   const timeout = setTimeout(() => {
-    validateTextDocument(change.document);
+    validateTextDocument(textDocument);
     validationTimeouts.delete(uri);
   }, 300);
 
   validationTimeouts.set(uri, timeout);
+}
+
+function scheduleValidateAllOpenDocuments(excludeUri?: string): void {
+  if (validateAllTimeout) {
+    clearTimeout(validateAllTimeout);
+  }
+
+  validateAllTimeout = setTimeout(() => {
+    documents.all().forEach((document) => {
+      if (excludeUri && document.uri === excludeUri) {
+        return;
+      }
+      validateTextDocument(document);
+    });
+    validateAllTimeout = null;
+  }, 300);
+}
+
+// The content of a text document has changed. This event is emitted
+// when the text document first opened or when its content has changed.
+// Note: We don't need a separate onDidOpen handler because onDidChangeContent
+// already fires when a document is first opened, avoiding double-parsing.
+documents.onDidChangeContent((change) => {
+  // Parse immediately (needed for completion/hover)
+  cssVariableManager.parseDocument(change.document);
+
+  scheduleValidation(change.document);
+  scheduleValidateAllOpenDocuments(change.document.uri);
 });
 
 async function validateTextDocument(textDocument: TextDocument): Promise<void> {
