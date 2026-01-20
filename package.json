@@ -1,6 +1,6 @@
 {
   "name": "css-variable-lsp",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "description": "A CSS Language Server for CSS Variables",
   "license": "GPL-3.0",
   "bin": {
