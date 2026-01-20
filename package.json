@@ -3,6 +3,10 @@
   "version": "1.0.15",
   "description": "A CSS Language Server for CSS Variables",
   "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lmn451/css-lsp"
+  },
   "bin": {
     "css-variable-lsp": "out/server.js"
   },
