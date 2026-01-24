@@ -219,20 +219,29 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
   const diagnostics: Diagnostic[] = [];
 
   // Find all var(--variable) usages
-  const usageRegex = /var\((--[\w-]+)(?:\s*,\s*[^)]+)?\)/g;
+  const usageRegex = /var\((--[\w-]+)(?:\s*,\s*([^)]+))?\)/g;
   let match;
 
   while ((match = usageRegex.exec(text)) !== null) {
     const variableName = match[1];
+    const hasFallback = Boolean(match[2]);
     const definitions = cssVariableManager.getVariables(variableName);
 
     if (definitions.length === 0) {
+      if (hasFallback && runtimeConfig.undefinedVarFallback === "off") {
+        continue;
+      }
+
+      const severity =
+        hasFallback && runtimeConfig.undefinedVarFallback === "info"
+          ? DiagnosticSeverity.Information
+          : DiagnosticSeverity.Warning;
       // Variable is used but not defined
       const startPos = textDocument.positionAt(match.index);
       const endPos = textDocument.positionAt(match.index + match[0].length);
 
       const diagnostic: Diagnostic = {
-        severity: DiagnosticSeverity.Warning,
+        severity,
         range: {
           start: startPos,
           end: endPos,

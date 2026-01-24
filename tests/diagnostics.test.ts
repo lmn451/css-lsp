@@ -3,6 +3,7 @@ import { strict as assert } from "node:assert";
 import { CssVariableManager } from "../src/cssVariableManager";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { Diagnostic, DiagnosticSeverity } from "vscode-languageserver/node";
+import { UndefinedVarFallbackMode } from "../src/runtimeConfig";
 
 function createDoc(uri: string, content: string, languageId: string = "css") {
   return TextDocument.create(uri, languageId, 1, content);
@@ -14,25 +15,36 @@ function createDoc(uri: string, content: string, languageId: string = "css") {
 function getDiagnostics(
   document: TextDocument,
   manager: CssVariableManager,
+  options: { undefinedVarFallback?: UndefinedVarFallbackMode } = {},
 ): Diagnostic[] {
   const text = document.getText();
   const diagnostics: Diagnostic[] = [];
+  const undefinedVarFallback = options.undefinedVarFallback ?? "warning";
   
   // Find all var(--variable) usages
-  const usageRegex = /var\((--[\w-]+)(?:\s*,\s*[^)]+)?\)/g;
+  const usageRegex = /var\((--[\w-]+)(?:\s*,\s*([^)]+))?\)/g;
   let match;
 
   while ((match = usageRegex.exec(text)) !== null) {
     const variableName = match[1];
+    const hasFallback = Boolean(match[2]);
     const definitions = manager.getVariables(variableName);
 
     if (definitions.length === 0) {
+      if (hasFallback && undefinedVarFallback === "off") {
+        continue;
+      }
+
+      const severity =
+        hasFallback && undefinedVarFallback === "info"
+          ? DiagnosticSeverity.Information
+          : DiagnosticSeverity.Warning;
       // Variable is used but not defined
       const startPos = document.positionAt(match.index);
       const endPos = document.positionAt(match.index + match[0].length);
 
       const diagnostic: Diagnostic = {
-        severity: DiagnosticSeverity.Warning,
+        severity,
         range: {
           start: startPos,
           end: endPos,
@@ -96,7 +108,7 @@ test("diagnostics for multiple undefined variables", () => {
   assert.ok(diagnostics[2].message.includes("--undefined-3"));
 });
 
-test("diagnostics ignore variables with fallback values", () => {
+test("diagnostics warn on fallback by default", () => {
   const manager = new CssVariableManager();
   const css = ".btn { color: var(--undefined, red); }";
   const doc = createDoc("file:///test.css", css);
@@ -104,8 +116,35 @@ test("diagnostics ignore variables with fallback values", () => {
   manager.parseDocument(doc);
   const diagnostics = getDiagnostics(doc, manager);
 
-  // Still reports undefined, fallback doesn't eliminate the warning
+  // Still reports undefined by default.
   assert.strictEqual(diagnostics.length, 1);
+});
+
+test("diagnostics downgrade to info for fallback when configured", () => {
+  const manager = new CssVariableManager();
+  const css = ".btn { color: var(--undefined, red); }";
+  const doc = createDoc("file:///test.css", css);
+
+  manager.parseDocument(doc);
+  const diagnostics = getDiagnostics(doc, manager, {
+    undefinedVarFallback: "info",
+  });
+
+  assert.strictEqual(diagnostics.length, 1);
+  assert.strictEqual(diagnostics[0].severity, DiagnosticSeverity.Information);
+});
+
+test("diagnostics omit fallback warnings when configured", () => {
+  const manager = new CssVariableManager();
+  const css = ".btn { color: var(--undefined, red); }";
+  const doc = createDoc("file:///test.css", css);
+
+  manager.parseDocument(doc);
+  const diagnostics = getDiagnostics(doc, manager, {
+    undefinedVarFallback: "off",
+  });
+
+  assert.strictEqual(diagnostics.length, 0);
 });
 
 test("diagnostics work across files", () => {

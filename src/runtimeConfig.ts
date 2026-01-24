@@ -1,4 +1,5 @@
 export type PathDisplayMode = "relative" | "absolute" | "abbreviated";
+export type UndefinedVarFallbackMode = "warning" | "info" | "off";
 
 export interface RuntimeConfig {
   enableColorProvider: boolean;
@@ -7,6 +8,7 @@ export interface RuntimeConfig {
   ignoreGlobs: string[] | undefined;
   pathDisplayMode: PathDisplayMode;
   pathDisplayAbbrevLength: number;
+  undefinedVarFallback: UndefinedVarFallbackMode;
 }
 
 function getArgValue(argv: string[], name: string): string | null {
@@ -56,6 +58,31 @@ function normalizePathDisplayMode(
     case "abbr":
     case "fish":
       return "abbreviated";
+    default:
+      return null;
+  }
+}
+
+function normalizeUndefinedVarFallbackMode(
+  value: string | null | undefined,
+): UndefinedVarFallbackMode | null {
+  if (!value) {
+    return null;
+  }
+
+  switch (value.toLowerCase()) {
+    case "warn":
+    case "warning":
+      return "warning";
+    case "info":
+    case "information":
+      return "info";
+    case "off":
+    case "omit":
+    case "none":
+    case "disable":
+    case "disabled":
+      return "off";
     default:
       return null;
   }
@@ -204,6 +231,12 @@ export function buildRuntimeConfig(
     parseOptionalInt(pathDisplayLengthArg ?? pathDisplayLengthEnv) ??
     parsedPathDisplay.abbrevLength;
   const pathDisplayAbbrevLength = Math.max(0, abbrevLengthRaw ?? 1);
+  const undefinedVarFallbackArg = getArgValue(argv, "undefined-var-fallback");
+  const undefinedVarFallbackEnv = env.CSS_LSP_UNDEFINED_VAR_FALLBACK;
+  const undefinedVarFallback =
+    normalizeUndefinedVarFallbackMode(
+      undefinedVarFallbackArg ?? undefinedVarFallbackEnv,
+    ) ?? "warning";
 
   return {
     enableColorProvider,
@@ -212,5 +245,6 @@ export function buildRuntimeConfig(
     ignoreGlobs,
     pathDisplayMode,
     pathDisplayAbbrevLength,
+    undefinedVarFallback,
   };
 }

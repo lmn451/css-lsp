@@ -55,6 +55,7 @@ Command-line flags:
 - `--ignore-glob "<glob>"` (repeatable)
 - `--path-display=relative|absolute|abbreviated`
 - `--path-display-length=N` (only used for `abbreviated`; `0` disables shortening)
+- `--undefined-var-fallback=warning|info|off` (controls diagnostics for undefined vars when a `var()` fallback exists)
 
 Environment variables:
 
@@ -64,11 +65,13 @@ Environment variables:
 - `CSS_LSP_DEBUG=1` (enable debug logging)
 - `CSS_LSP_PATH_DISPLAY=relative|absolute|abbreviated`
 - `CSS_LSP_PATH_DISPLAY_LENGTH=1` (same as `--path-display-length`)
+- `CSS_LSP_UNDEFINED_VAR_FALLBACK=warning|info|off`
 
 Defaults:
 
 - `--path-display`: `relative`
 - `--path-display-length`: `1`
+- `--undefined-var-fallback`: `warning`
 - Lookup globs:
   - `**/*.css`
   - `**/*.scss`

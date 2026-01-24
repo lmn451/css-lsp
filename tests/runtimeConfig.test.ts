@@ -23,6 +23,7 @@ test("runtime config defaults", () => {
   assert.equal(config.ignoreGlobs, undefined);
   assert.equal(config.pathDisplayMode, "relative");
   assert.equal(config.pathDisplayAbbrevLength, 1);
+  assert.equal(config.undefinedVarFallback, "warning");
 });
 
 test("color provider and variable flags", () => {
@@ -205,4 +206,26 @@ test("color-only env requires explicit 1", () => {
   );
 
   assert.equal(config.colorOnlyOnVariables, false);
+});
+
+test("undefined var fallback mode resolves from cli then env", () => {
+  const cliConfig = buildRuntimeConfig(
+    ["--undefined-var-fallback=info"],
+    makeEnv({ CSS_LSP_UNDEFINED_VAR_FALLBACK: "off" }),
+  );
+  assert.equal(cliConfig.undefinedVarFallback, "info");
+
+  const envConfig = buildRuntimeConfig(
+    [],
+    makeEnv({ CSS_LSP_UNDEFINED_VAR_FALLBACK: "omit" }),
+  );
+  assert.equal(envConfig.undefinedVarFallback, "off");
+});
+
+test("undefined var fallback mode ignores invalid values", () => {
+  const config = buildRuntimeConfig(
+    ["--undefined-var-fallback=maybe"],
+    makeEnv(),
+  );
+  assert.equal(config.undefinedVarFallback, "warning");
 });
