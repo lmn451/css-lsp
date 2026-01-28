@@ -31,14 +31,12 @@ function getCompletionsAt(
   if (!completionContext) {
     return [];
   }
-  const shouldWrapVar =
-    !completionContext.isVarContext && completionContext.propertyName !== null;
 
   return manager.getAllVariables().map((v) => ({
-    label: shouldWrapVar ? `var(${v.name})` : v.name,
+    label: v.name,
     kind: 13, // CompletionItemKind.Variable
     detail: v.value,
-    insertText: shouldWrapVar ? `var(${v.name})` : undefined,
+    insertText: v.name,
   }));
 }
 
@@ -53,14 +51,13 @@ test("completion suggests variables inside var()", () => {
   assert.ok(completions.some((c) => c.label === "--secondary"));
 });
 
-test("completion suggests variables after property colon", () => {
+test("no completion after property colon without var()", () => {
   const manager = new CssVariableManager();
   manager.parseContent(":root { --bg-color: white; }", "file:///vars.css", "css");
   
   const completions = getCompletionsAt(manager, ".box { background: | }");
   
-  assert.strictEqual(completions.length, 1);
-  assert.strictEqual(completions[0].label, "var(--bg-color)");
+  assert.strictEqual(completions.length, 0);
 });
 
 test("completion works in multi-value properties", () => {
@@ -95,10 +92,14 @@ test("completion works in HTML style attribute", () => {
   const manager = new CssVariableManager();
   manager.parseContent(":root { --text-color: black; }", "file:///vars.css", "css");
   
-  const completions = getCompletionsAt(manager, '<div style="color: |">', "html");
+  const completions = getCompletionsAt(
+    manager,
+    '<div style="color: var(--|)">',
+    "html",
+  );
   
   assert.ok(completions.length > 0);
-  assert.ok(completions.some((c) => c.label === "var(--text-color)"));
+  assert.ok(completions.some((c) => c.label === "--text-color"));
 });
 
 test("completion works in HTML style block", () => {
@@ -107,12 +108,12 @@ test("completion works in HTML style block", () => {
 
   const completions = getCompletionsAt(
     manager,
-    "<style>.btn { color: | }</style>",
+    "<style>.btn { color: var(--|) }</style>",
     "html",
   );
 
   assert.ok(completions.length > 0);
-  assert.ok(completions.some((c) => c.label === "var(--text-color)"));
+  assert.ok(completions.some((c) => c.label === "--text-color"));
 });
 
 test("no completion in HTML outside style context", () => {
@@ -171,7 +172,10 @@ test("completion works after semicolon in declaration block", () => {
   const manager = new CssVariableManager();
   manager.parseContent(":root { --primary: red; --secondary: blue; }", "file:///vars.css", "css");
   
-  const completions = getCompletionsAt(manager, ".selector { color: red; background: | }");
+  const completions = getCompletionsAt(
+    manager,
+    ".selector { color: red; background: var(--|) }",
+  );
   
   assert.strictEqual(completions.length, 2);
 });
@@ -185,19 +189,31 @@ test("completion works in nested var() fallback", () => {
   assert.ok(completions.some((c) => c.label === "--fallback"));
 });
 
+test("no completion in var() fallback value", () => {
+  const manager = new CssVariableManager();
+  manager.parseContent(":root { --fallback: gray; }", "file:///vars.css", "css");
+
+  const completions = getCompletionsAt(
+    manager,
+    ".box { color: var(--primary, |) }",
+  );
+
+  assert.strictEqual(completions.length, 0);
+});
+
 test("completion works across multiple lines", () => {
   const manager = new CssVariableManager();
   manager.parseContent(":root { --margin: 20px; }", "file:///vars.css", "css");
   
   const content = `.container {
   color: red;
-  background: |
+  background: var(--|
 }`;
   
   const completions = getCompletionsAt(manager, content);
   
   assert.ok(completions.length > 0);
-  assert.ok(completions.some((c) => c.label === "var(--margin)"));
+  assert.ok(completions.some((c) => c.label === "--margin"));
 });
 
 test("completion shows variable values in detail", () => {

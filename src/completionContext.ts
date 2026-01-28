@@ -4,6 +4,17 @@ import { CSS_LANGUAGE_IDS, HTML_LIKE_LANGUAGE_IDS } from "./cssVariableManager";
 
 const CONTEXT_WINDOW = 400;
 
+const JS_LANGUAGE_IDS = new Set([
+  "javascript",
+  "javascriptreact",
+  "typescript",
+  "typescriptreact",
+  "js",
+  "jsx",
+  "ts",
+  "tsx",
+]);
+
 type RawCompletionContext = {
   beforeCursor: string;
   allowWithoutBraces: boolean;
@@ -11,29 +22,19 @@ type RawCompletionContext = {
 
 export type CssCompletionContext = {
   propertyName: string | null;
-  isVarContext: boolean;
 };
 
 export function getCssCompletionContext(
   document: TextDocument,
   position: Position,
 ): CssCompletionContext | null {
-  const text = document.getText();
-  const offset = document.offsetAt(position);
-  const genericBeforeCursor = sliceBeforeCursor(text, offset);
-  const hasVarCall = hasVarFunctionContext(genericBeforeCursor);
-
   const rawContext = getRawCompletionContext(document, position);
   if (!rawContext) {
-    return hasVarCall ? { propertyName: null, isVarContext: true } : null;
+    return null;
   }
 
-  const isVarContext = hasVarFunctionContext(rawContext.beforeCursor);
-
-  if (
-    !isInCssValueContext(rawContext.beforeCursor, rawContext.allowWithoutBraces)
-  ) {
-    return hasVarCall ? { propertyName: null, isVarContext: true } : null;
+  if (!isVarFunctionContext(rawContext.beforeCursor)) {
+    return null;
   }
 
   return {
@@ -41,7 +42,6 @@ export function getCssCompletionContext(
       rawContext.beforeCursor,
       rawContext.allowWithoutBraces,
     ),
-    isVarContext,
   };
 }
 
@@ -60,27 +60,43 @@ function getRawCompletionContext(
     };
   }
 
-  if (!HTML_LIKE_LANGUAGE_IDS.has(languageId)) {
+  if (HTML_LIKE_LANGUAGE_IDS.has(languageId)) {
+    const inlineStyle = extractInlineStyleContext(text, offset);
+    if (inlineStyle) {
+      return {
+        beforeCursor: inlineStyle,
+        allowWithoutBraces: true,
+      };
+    }
+
+    const styleBlock = extractStyleBlockContext(text, offset);
+    if (styleBlock) {
+      return {
+        beforeCursor: styleBlock,
+        allowWithoutBraces: false,
+      };
+    }
+
     return null;
   }
 
-  const inlineStyle = extractInlineStyleContext(text, offset);
-  if (inlineStyle) {
+  if (JS_LANGUAGE_IDS.has(languageId)) {
+    const beforeCursor = sliceBeforeCursor(text, offset);
+    const jsString = extractJsStringContext(beforeCursor);
+    if (!jsString) {
+      return null;
+    }
     return {
-      beforeCursor: inlineStyle,
+      beforeCursor: jsString,
       allowWithoutBraces: true,
     };
   }
 
-  const styleBlock = extractStyleBlockContext(text, offset);
-  if (styleBlock) {
-    return {
-      beforeCursor: styleBlock,
-      allowWithoutBraces: false,
-    };
-  }
-
   return null;
+}
+
+function isVarFunctionContext(beforeCursor: string): boolean {
+  return /(?:^|[^\w-])var\(\s*(?:--[\w-]*)?$/i.test(beforeCursor);
 }
 
 function sliceBeforeCursor(text: string, offset: number): string {
@@ -134,19 +150,98 @@ function extractStyleBlockContext(text: string, offset: number): string | null {
   return trimContext(cssBeforeCursor);
 }
 
-function hasVarFunctionContext(beforeCursor: string): boolean {
-  return /var\(\s*(?:--[\w-]*)?$/.test(beforeCursor);
-}
+function extractJsStringContext(beforeCursor: string): string | null {
+  let inQuote: "'" | '"' | null = null;
+  let inTemplate = false;
+  let templateExprDepth = 0;
+  let exprQuote: "'" | '"' | "`" | null = null;
+  let segmentStart: number | null = null;
 
-function isInCssValueContext(
-  beforeCursor: string,
-  allowWithoutBraces: boolean,
-): boolean {
-  if (hasVarFunctionContext(beforeCursor)) {
-    return true;
+  for (let i = 0; i < beforeCursor.length; i++) {
+    const char = beforeCursor[i];
+
+    if (inQuote) {
+      if (char === "\\") {
+        i++;
+        continue;
+      }
+      if (char === inQuote) {
+        inQuote = null;
+        segmentStart = null;
+      }
+      continue;
+    }
+
+    if (inTemplate) {
+      if (templateExprDepth > 0) {
+        if (exprQuote) {
+          if (char === "\\") {
+            i++;
+            continue;
+          }
+          if (char === exprQuote) {
+            exprQuote = null;
+          }
+          continue;
+        }
+
+        if (char === "'" || char === '"' || char === "`") {
+          exprQuote = char as "'" | '"' | "`";
+          continue;
+        }
+        if (char === "{") {
+          templateExprDepth++;
+          continue;
+        }
+        if (char === "}") {
+          templateExprDepth--;
+          if (templateExprDepth === 0) {
+            segmentStart = i + 1;
+          }
+          continue;
+        }
+        continue;
+      }
+
+      if (char === "\\") {
+        i++;
+        continue;
+      }
+      if (char === "`") {
+        inTemplate = false;
+        segmentStart = null;
+        continue;
+      }
+      if (char === "$" && beforeCursor[i + 1] === "{") {
+        templateExprDepth = 1;
+        segmentStart = null;
+        i++;
+        continue;
+      }
+      continue;
+    }
+
+    if (char === "'" || char === '"') {
+      inQuote = char as "'" | '"';
+      segmentStart = i + 1;
+      continue;
+    }
+
+    if (char === "`") {
+      inTemplate = true;
+      segmentStart = i + 1;
+    }
   }
 
-  return getPropertyNameFromContext(beforeCursor, allowWithoutBraces) !== null;
+  if (inQuote && segmentStart !== null) {
+    return beforeCursor.slice(segmentStart);
+  }
+
+  if (inTemplate && templateExprDepth === 0 && segmentStart !== null) {
+    return beforeCursor.slice(segmentStart);
+  }
+
+  return null;
 }
 
 function getPropertyNameFromContext(

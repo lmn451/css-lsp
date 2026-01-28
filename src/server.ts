@@ -453,8 +453,6 @@ connection.onCompletion(
     }
 
     const propertyName = completionContext.propertyName;
-    const shouldWrapVar =
-      !completionContext.isVarContext && propertyName !== null;
 
     const variables = cssVariableManager.getAllVariables();
     // Deduplicate by name
@@ -483,24 +481,18 @@ connection.onCompletion(
         return a.variable.name.localeCompare(b.variable.name);
       });
 
-    return filteredAndSorted.map((sv) => {
-      const variableName = sv.variable.name;
-      const label = shouldWrapVar ? `var(${variableName})` : variableName;
-
-      return {
-        label,
-        kind: CompletionItemKind.Variable,
-        detail: sv.variable.value,
-        documentation: `Defined in ${formatUriForDisplay(sv.variable.uri, {
-          mode: runtimeConfig.pathDisplayMode,
-          abbrevLength: runtimeConfig.pathDisplayAbbrevLength,
-          workspaceFolderPaths,
-          rootFolderPath,
-        })}`,
-        insertText: shouldWrapVar ? `var(${variableName})` : undefined,
-        filterText: shouldWrapVar ? variableName : undefined,
-      };
-    });
+    return filteredAndSorted.map((sv) => ({
+      label: sv.variable.name,
+      kind: CompletionItemKind.Variable,
+      detail: sv.variable.value,
+      documentation: `Defined in ${formatUriForDisplay(sv.variable.uri, {
+        mode: runtimeConfig.pathDisplayMode,
+        abbrevLength: runtimeConfig.pathDisplayAbbrevLength,
+        workspaceFolderPaths,
+        rootFolderPath,
+      })}`,
+      insertText: sv.variable.name,
+    }));
   },
 );
 

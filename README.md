@@ -4,7 +4,7 @@ A Language Server Protocol (LSP) implementation focused on CSS custom properties
 
 ## Features
 
-- **Context-aware completion** in CSS property values, inside `var(...)`, and in HTML `style=""` attributes, with relevance scoring.
+- **Context-aware completion** after `var(` in CSS files, HTML `<style>` blocks/`style=""` attributes, and JS/TS string literals, with relevance scoring.
 - **Workspace-wide indexing** across `.css`, `.scss`, `.sass`, `.less`, plus HTML `<style>` blocks and inline styles.
 - **Cascade-aware hover** that orders definitions by `!important`, specificity, and source order.
 - **Go to definition**, **find references**, and **rename** support.
