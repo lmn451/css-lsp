@@ -2,10 +2,8 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { CssVariableManager } from "../src/cssVariableManager";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import {
-  TextDocumentPositionParams,
-  CompletionItem,
-} from "vscode-languageserver/node";
+import { CompletionItem } from "vscode-languageserver/node";
+import { getCssCompletionContext } from "../src/completionContext";
 
 function createDoc(uri: string, content: string, languageId: string = "css") {
   return TextDocument.create(uri, languageId, 1, content);
@@ -29,72 +27,19 @@ function getCompletionsAt(
   
   // Mock the server's completion logic
   const position = doc.positionAt(cursorPos);
-  const text = doc.getText();
-  const offset = doc.offsetAt(position);
-  
-  // Check if we're in a CSS value context (simplified from server.ts)
-  const beforeCursor = text.slice(Math.max(0, offset - 200), offset);
-  
-  // Check if we're inside var()
-  const varMatch = beforeCursor.match(/var\(\s*(--[\w-]*)$/);
-  if (varMatch) {
-    return manager.getAllVariables().map((v) => ({
-      label: v.name,
-      kind: 13, // CompletionItemKind.Variable
-      detail: v.value,
-    }));
+  const completionContext = getCssCompletionContext(doc, position);
+  if (!completionContext) {
+    return [];
   }
-  
-  // Check if we're in a property value position
-  let inBraces = 0;
-  let inParens = 0;
-  let lastColonPos = -1;
-  let lastSemicolonPos = -1;
-  let lastBracePos = -1;
+  const shouldWrapVar =
+    !completionContext.isVarContext && completionContext.propertyName !== null;
 
-  for (let i = beforeCursor.length - 1; i >= 0; i--) {
-    const char = beforeCursor[i];
-    if (char === ")") inParens++;
-    else if (char === "(") {
-      inParens--;
-      if (inParens < 0) break;
-    } else if (char === "}") inBraces++;
-    else if (char === "{") {
-      inBraces--;
-      if (inBraces < 0) {
-        lastBracePos = i;
-        break;
-      }
-    } else if (char === ":" && inParens === 0 && inBraces === 0 && lastColonPos === -1) {
-      lastColonPos = i;
-    } else if (char === ";" && inParens === 0 && inBraces === 0 && lastSemicolonPos === -1) {
-      lastSemicolonPos = i;
-    }
-  }
-
-  if (lastColonPos > lastSemicolonPos && lastColonPos > lastBracePos) {
-    const beforeColon = beforeCursor.slice(0, lastColonPos).trim();
-    const propertyMatch = beforeColon.match(/[\w-]+$/);
-    if (propertyMatch) {
-      return manager.getAllVariables().map((v) => ({
-        label: v.name,
-        kind: 13,
-        detail: v.value,
-      }));
-    }
-  }
-
-  // Check for HTML style attribute
-  const styleAttrMatch = beforeCursor.match(/style\s*=\s*["'][^"']*:\s*[^"';]*$/i);
-  if (styleAttrMatch) {
-    return manager.getAllVariables().map((v) => ({
-      label: v.name,
-      kind: 13,
-      detail: v.value,
-    }));
-  }
-
-  return [];
+  return manager.getAllVariables().map((v) => ({
+    label: shouldWrapVar ? `var(${v.name})` : v.name,
+    kind: 13, // CompletionItemKind.Variable
+    detail: v.value,
+    insertText: shouldWrapVar ? `var(${v.name})` : undefined,
+  }));
 }
 
 test("completion suggests variables inside var()", () => {
@@ -115,7 +60,7 @@ test("completion suggests variables after property colon", () => {
   const completions = getCompletionsAt(manager, ".box { background: | }");
   
   assert.strictEqual(completions.length, 1);
-  assert.strictEqual(completions[0].label, "--bg-color");
+  assert.strictEqual(completions[0].label, "var(--bg-color)");
 });
 
 test("completion works in multi-value properties", () => {
@@ -153,7 +98,73 @@ test("completion works in HTML style attribute", () => {
   const completions = getCompletionsAt(manager, '<div style="color: |">', "html");
   
   assert.ok(completions.length > 0);
-  assert.ok(completions.some((c) => c.label === "--text-color"));
+  assert.ok(completions.some((c) => c.label === "var(--text-color)"));
+});
+
+test("completion works in HTML style block", () => {
+  const manager = new CssVariableManager();
+  manager.parseContent(":root { --text-color: black; }", "file:///vars.css", "css");
+
+  const completions = getCompletionsAt(
+    manager,
+    "<style>.btn { color: | }</style>",
+    "html",
+  );
+
+  assert.ok(completions.length > 0);
+  assert.ok(completions.some((c) => c.label === "var(--text-color)"));
+});
+
+test("no completion in HTML outside style context", () => {
+  const manager = new CssVariableManager();
+  manager.parseContent(":root { --color: red; }", "file:///vars.css", "css");
+
+  const completions = getCompletionsAt(
+    manager,
+    '<div class="button|">Click</div>',
+    "html",
+  );
+
+  assert.strictEqual(completions.length, 0);
+});
+
+test("completion works in non-CSS language when using var()", () => {
+  const manager = new CssVariableManager();
+  manager.parseContent(":root { --color: red; }", "file:///vars.css", "css");
+
+  const completions = getCompletionsAt(
+    manager,
+    "const styles = `color: var(--|)`;",
+    "javascript",
+  );
+
+  assert.ok(completions.length > 0);
+  assert.ok(completions.some((c) => c.label === "--color"));
+});
+
+test("no completion in non-CSS language without var()", () => {
+  const manager = new CssVariableManager();
+  manager.parseContent(":root { --color: red; }", "file:///vars.css", "css");
+
+  const completions = getCompletionsAt(
+    manager,
+    "const styles = { color: | };",
+    "javascript",
+  );
+
+  assert.strictEqual(completions.length, 0);
+});
+
+test("no completion in selector pseudo-class", () => {
+  const manager = new CssVariableManager();
+  manager.parseContent(":root { --color: red; }", "file:///vars.css", "css");
+
+  const completions = getCompletionsAt(
+    manager,
+    ".button:ho| { color: red; }",
+  );
+
+  assert.strictEqual(completions.length, 0);
 });
 
 test("completion works after semicolon in declaration block", () => {
@@ -186,7 +197,7 @@ test("completion works across multiple lines", () => {
   const completions = getCompletionsAt(manager, content);
   
   assert.ok(completions.length > 0);
-  assert.ok(completions.some((c) => c.label === "--margin"));
+  assert.ok(completions.some((c) => c.label === "var(--margin)"));
 });
 
 test("completion shows variable values in detail", () => {

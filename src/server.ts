@@ -19,6 +19,7 @@ import {
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { CssVariable } from "./cssVariableManager";
+import { getCssCompletionContext } from "./completionContext";
 import * as path from "path";
 import { URI } from "vscode-uri";
 
@@ -284,62 +285,6 @@ connection.onDidChangeWatchedFiles(async (change) => {
 });
 
 /**
- * Extract the CSS property name from the context before the cursor.
- * Returns the property name if found, or null otherwise.
- */
-function getPropertyNameFromContext(beforeCursor: string): string | null {
-  // Look for the pattern: property-name: ... cursor
-  // Scan backwards to find the colon
-  let inBraces = 0;
-  let inParens = 0;
-  let lastColonPos = -1;
-  let lastSemicolonPos = -1;
-  let lastBracePos = -1;
-
-  for (let i = beforeCursor.length - 1; i >= 0; i--) {
-    const char = beforeCursor[i];
-
-    if (char === ")") inParens++;
-    else if (char === "(") {
-      inParens--;
-      if (inParens < 0) break;
-    } else if (char === "}") inBraces++;
-    else if (char === "{") {
-      inBraces--;
-      if (inBraces < 0) {
-        lastBracePos = i;
-        break;
-      }
-    } else if (
-      char === ":" &&
-      inParens === 0 &&
-      inBraces === 0 &&
-      lastColonPos === -1
-    ) {
-      lastColonPos = i;
-    } else if (
-      char === ";" &&
-      inParens === 0 &&
-      inBraces === 0 &&
-      lastSemicolonPos === -1
-    ) {
-      lastSemicolonPos = i;
-    }
-  }
-
-  // If we found a colon after the last semicolon or opening brace, extract the property name
-  if (lastColonPos > lastSemicolonPos && lastColonPos > lastBracePos) {
-    const beforeColon = beforeCursor.slice(0, lastColonPos).trim();
-    const propertyMatch = beforeColon.match(/([\w-]+)$/);
-    if (propertyMatch) {
-      return propertyMatch[1].toLowerCase();
-    }
-  }
-
-  return null;
-}
-
-/**
  * Check if a CSS variable is relevant for a given property based on naming conventions.
  * Returns a score: higher is more relevant, 0 means not relevant, -1 means keep (no filtering).
  */
@@ -491,89 +436,6 @@ function scoreVariableRelevance(
   return -1;
 }
 
-/**
- * Check if the cursor position is in a context where CSS variable completion is relevant.
- * Returns true if we're in a CSS property value or inside var().
- */
-function isInCssValueContext(
-  document: TextDocument,
-  position: TextDocumentPositionParams["position"],
-): boolean {
-  const text = document.getText();
-  const offset = document.offsetAt(position);
-
-  // Get text before cursor (up to 200 chars to analyze context)
-  const beforeCursor = text.slice(Math.max(0, offset - 200), offset);
-
-  // Check if we're inside var( ) - most relevant context
-  const varMatch = beforeCursor.match(/var\(\s*(--[\w-]*)$/);
-  if (varMatch) {
-    return true;
-  }
-
-  // Check if we're in a CSS property value position
-  // Look for patterns like "property: |" or "property: value |"
-  // We need to find the last : that isn't inside a {} block or ()
-
-  let inBraces = 0;
-  let inParens = 0;
-  let lastColonPos = -1;
-  let lastSemicolonPos = -1;
-  let lastBracePos = -1;
-
-  for (let i = beforeCursor.length - 1; i >= 0; i--) {
-    const char = beforeCursor[i];
-
-    // Track nesting (scanning backwards)
-    if (char === ")") inParens++;
-    else if (char === "(") {
-      inParens--;
-      if (inParens < 0) break; // We've left the current context
-    } else if (char === "}") inBraces++;
-    else if (char === "{") {
-      inBraces--;
-      if (inBraces < 0) {
-        lastBracePos = i;
-        break; // Found the opening brace of our block
-      }
-    } else if (
-      char === ":" &&
-      inParens === 0 &&
-      inBraces === 0 &&
-      lastColonPos === -1
-    ) {
-      lastColonPos = i;
-    } else if (
-      char === ";" &&
-      inParens === 0 &&
-      inBraces === 0 &&
-      lastSemicolonPos === -1
-    ) {
-      lastSemicolonPos = i;
-    }
-  }
-
-  // If we found a colon after the last semicolon or opening brace, we're in a value
-  if (lastColonPos > lastSemicolonPos && lastColonPos > lastBracePos) {
-    // Make sure there's a property name before the colon
-    const beforeColon = beforeCursor.slice(0, lastColonPos).trim();
-    const propertyMatch = beforeColon.match(/[\w-]+$/);
-    if (propertyMatch) {
-      return true;
-    }
-  }
-
-  // Check for HTML style attribute: style="property: |"
-  const styleAttrMatch = beforeCursor.match(
-    /style\s*=\s*["'][^"']*:\s*[^"';]*$/i,
-  );
-  if (styleAttrMatch) {
-    return true;
-  }
-
-  return false;
-}
-
 // This handler provides the initial list of the completion items.
 connection.onCompletion(
   (textDocumentPosition: TextDocumentPositionParams): CompletionItem[] => {
@@ -582,16 +444,17 @@ connection.onCompletion(
       return [];
     }
 
-    // Only show CSS variable completions in relevant contexts
-    if (!isInCssValueContext(document, textDocumentPosition.position)) {
+    const completionContext = getCssCompletionContext(
+      document,
+      textDocumentPosition.position,
+    );
+    if (!completionContext) {
       return [];
     }
 
-    // Get context to filter suggestions
-    const text = document.getText();
-    const offset = document.offsetAt(textDocumentPosition.position);
-    const beforeCursor = text.slice(Math.max(0, offset - 200), offset);
-    const propertyName = getPropertyNameFromContext(beforeCursor);
+    const propertyName = completionContext.propertyName;
+    const shouldWrapVar =
+      !completionContext.isVarContext && propertyName !== null;
 
     const variables = cssVariableManager.getAllVariables();
     // Deduplicate by name
@@ -620,17 +483,24 @@ connection.onCompletion(
         return a.variable.name.localeCompare(b.variable.name);
       });
 
-    return filteredAndSorted.map((sv) => ({
-      label: sv.variable.name,
-      kind: CompletionItemKind.Variable,
-      detail: sv.variable.value,
-      documentation: `Defined in ${formatUriForDisplay(sv.variable.uri, {
-        mode: runtimeConfig.pathDisplayMode,
-        abbrevLength: runtimeConfig.pathDisplayAbbrevLength,
-        workspaceFolderPaths,
-        rootFolderPath,
-      })}`,
-    }));
+    return filteredAndSorted.map((sv) => {
+      const variableName = sv.variable.name;
+      const label = shouldWrapVar ? `var(${variableName})` : variableName;
+
+      return {
+        label,
+        kind: CompletionItemKind.Variable,
+        detail: sv.variable.value,
+        documentation: `Defined in ${formatUriForDisplay(sv.variable.uri, {
+          mode: runtimeConfig.pathDisplayMode,
+          abbrevLength: runtimeConfig.pathDisplayAbbrevLength,
+          workspaceFolderPaths,
+          rootFolderPath,
+        })}`,
+        insertText: shouldWrapVar ? `var(${variableName})` : undefined,
+        filterText: shouldWrapVar ? variableName : undefined,
+      };
+    });
   },
 );
 

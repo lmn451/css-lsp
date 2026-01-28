@@ -69,7 +69,7 @@ const EXTENSION_LANGUAGE_MAP = new Map<string, string>([
   [".ripple", "html"],
 ]);
 
-const HTML_LIKE_LANGUAGE_IDS = new Set([
+export const HTML_LIKE_LANGUAGE_IDS = new Set([
   "html",
   "vue",
   "svelte",
@@ -77,7 +77,7 @@ const HTML_LIKE_LANGUAGE_IDS = new Set([
   "ripple",
 ]);
 
-const CSS_LANGUAGE_IDS = new Set(["css", "scss", "sass", "less"]);
+export const CSS_LANGUAGE_IDS = new Set(["css", "scss", "sass", "less"]);
 
 function normalizeGlobPattern(pattern: string): string {
   return pattern.replace(/\\/g, "/").trim();
