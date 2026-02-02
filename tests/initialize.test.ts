@@ -16,7 +16,7 @@ test("initialize result includes workspace folders when supported", () => {
   const withoutWorkspace = buildInitializeResult(true, false);
 
   assert.deepEqual(withWorkspace.capabilities.workspace, {
-    workspaceFolders: { supported: true },
+    workspaceFolders: { supported: true, changeNotifications: 'kind' },
   });
   assert.equal(withoutWorkspace.capabilities.workspace, undefined);
 });
@@ -24,5 +24,15 @@ test("initialize result includes workspace folders when supported", () => {
 test("initialize result keeps incremental sync", () => {
   const result = buildInitializeResult(true, false);
 
-  assert.equal(result.capabilities.textDocumentSync, TextDocumentSyncKind.Incremental);
+  const expectedTextDocumentSync = {
+    openClose: true,
+    change: TextDocumentSyncKind.Incremental,
+    willSave: true,
+    willSaveWaitUntil: true,
+    save: {
+      includeText: false,
+    },
+  };
+
+  assert.deepEqual(result.capabilities.textDocumentSync, expectedTextDocumentSync);
 });

@@ -22,6 +22,12 @@ type RawCompletionContext = {
 
 export type CssCompletionContext = {
   propertyName: string | null;
+  inVarFunction: boolean;
+};
+
+type ValueContext = {
+  isValueContext: boolean;
+  propertyName: string | null;
 };
 
 export function getCssCompletionContext(
@@ -33,15 +39,17 @@ export function getCssCompletionContext(
     return null;
   }
 
-  if (!isVarFunctionContext(rawContext.beforeCursor)) {
+  const valueContext = getValueContext(
+    rawContext.beforeCursor,
+    rawContext.allowWithoutBraces,
+  );
+  if (!valueContext.isValueContext) {
     return null;
   }
 
   return {
-    propertyName: getPropertyNameFromContext(
-      rawContext.beforeCursor,
-      rawContext.allowWithoutBraces,
-    ),
+    propertyName: valueContext.propertyName,
+    inVarFunction: isVarFunctionContext(rawContext.beforeCursor),
   };
 }
 
@@ -244,10 +252,10 @@ function extractJsStringContext(beforeCursor: string): string | null {
   return null;
 }
 
-function getPropertyNameFromContext(
+function getValueContext(
   beforeCursor: string,
   allowWithoutBraces: boolean,
-): string | null {
+): ValueContext {
   let inBraces = 0;
   let inParens = 0;
   let lastColonPos = -1;
@@ -260,7 +268,9 @@ function getPropertyNameFromContext(
     if (char === ")") inParens++;
     else if (char === "(") {
       inParens--;
-      if (inParens < 0) break;
+      if (inParens < 0) {
+        inParens = 0;
+      }
     } else if (char === "}") inBraces++;
     else if (char === "{") {
       inBraces--;
@@ -286,16 +296,17 @@ function getPropertyNameFromContext(
   }
 
   if (!allowWithoutBraces && lastBracePos === -1) {
-    return null;
+    return { isValueContext: false, propertyName: null };
   }
 
   if (lastColonPos > lastSemicolonPos && lastColonPos > lastBracePos) {
     const beforeColon = beforeCursor.slice(0, lastColonPos).trim();
     const propertyMatch = beforeColon.match(/([\w-]+)$/);
-    if (propertyMatch) {
-      return propertyMatch[1].toLowerCase();
-    }
+    return {
+      isValueContext: true,
+      propertyName: propertyMatch ? propertyMatch[1].toLowerCase() : null,
+    };
   }
 
-  return null;
+  return { isValueContext: false, propertyName: null };
 }

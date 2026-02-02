@@ -51,13 +51,14 @@ test("completion suggests variables inside var()", () => {
   assert.ok(completions.some((c) => c.label === "--secondary"));
 });
 
-test("no completion after property colon without var()", () => {
+test("completion works after property colon without var()", () => {
   const manager = new CssVariableManager();
   manager.parseContent(":root { --bg-color: white; }", "file:///vars.css", "css");
   
   const completions = getCompletionsAt(manager, ".box { background: | }");
   
-  assert.strictEqual(completions.length, 0);
+  assert.ok(completions.length > 0);
+  assert.ok(completions.some((c) => c.label === "--bg-color"));
 });
 
 test("completion works in multi-value properties", () => {
@@ -143,7 +144,21 @@ test("completion works in non-CSS language when using var()", () => {
   assert.ok(completions.some((c) => c.label === "--color"));
 });
 
-test("no completion in non-CSS language without var()", () => {
+test("completion works in non-CSS language string without var()", () => {
+  const manager = new CssVariableManager();
+  manager.parseContent(":root { --color: red; }", "file:///vars.css", "css");
+
+  const completions = getCompletionsAt(
+    manager,
+    "const styles = `color: |`;",
+    "javascript",
+  );
+
+  assert.ok(completions.length > 0);
+  assert.ok(completions.some((c) => c.label === "--color"));
+});
+
+test("no completion in non-CSS language outside string", () => {
   const manager = new CssVariableManager();
   manager.parseContent(":root { --color: red; }", "file:///vars.css", "css");
 
@@ -189,7 +204,7 @@ test("completion works in nested var() fallback", () => {
   assert.ok(completions.some((c) => c.label === "--fallback"));
 });
 
-test("no completion in var() fallback value", () => {
+test("completion works in var() fallback value", () => {
   const manager = new CssVariableManager();
   manager.parseContent(":root { --fallback: gray; }", "file:///vars.css", "css");
 
@@ -198,7 +213,8 @@ test("no completion in var() fallback value", () => {
     ".box { color: var(--primary, |) }",
   );
 
-  assert.strictEqual(completions.length, 0);
+  assert.ok(completions.length > 0);
+  assert.ok(completions.some((c) => c.label === "--fallback"));
 });
 
 test("completion works across multiple lines", () => {

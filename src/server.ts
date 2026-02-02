@@ -37,6 +37,10 @@ import {
   formatSpecificity,
   matchesContext,
 } from "./specificity";
+import { handleDeclaration } from "./handlers/declaration";
+import { handleTypeDefinition } from "./handlers/typeDefinition";
+import { handleImplementation } from "./handlers/implementation";
+import { handleDocumentHighlight } from "./handlers/documentHighlight";
 
 const runtimeConfig = buildRuntimeConfig(process.argv.slice(2), process.env);
 
@@ -491,7 +495,9 @@ connection.onCompletion(
         workspaceFolderPaths,
         rootFolderPath,
       })}`,
-      insertText: sv.variable.name,
+      insertText: completionContext.inVarFunction
+        ? sv.variable.name
+        : `var(${sv.variable.name})`,
     }));
   },
 );
@@ -695,6 +701,26 @@ connection.onDefinition((params) => {
     }
   }
   return undefined;
+});
+
+// Declaration handler
+connection.onDeclaration((params) => {
+  return handleDeclaration(params, documents, cssVariableManager);
+});
+
+// Type definition handler
+connection.onTypeDefinition((params) => {
+  return handleTypeDefinition(params, documents, cssVariableManager);
+});
+
+// Implementation handler
+connection.onImplementation((params) => {
+  return handleImplementation(params, documents, cssVariableManager);
+});
+
+// Document highlight handler
+connection.onDocumentHighlight((params) => {
+  return handleDocumentHighlight(params, documents, cssVariableManager);
 });
 
 // Find all references handler
