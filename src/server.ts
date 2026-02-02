@@ -18,6 +18,12 @@ import {
   FileChangeType,
   InlayHintParams,
   LinkedEditingRangeParams,
+  SemanticTokensParams,
+  DocumentFormattingParams,
+  DocumentRangeFormattingParams,
+  CallHierarchyPrepareParams,
+  CallHierarchyIncomingCallsParams,
+  CallHierarchyOutgoingCallsParams,
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { CssVariable } from "./cssVariableManager";
@@ -52,6 +58,16 @@ import { handleSignatureHelp } from "./handlers/signatureHelp";
 import { handlePrepareRename } from "./handlers/prepareRename";
 import { handleCodeActions } from "./handlers/codeAction";
 import { handleLinkedEditingRange } from "./handlers/linkedEditingRange";
+import { handleSemanticTokens } from "./handlers/semanticTokens";
+import {
+  handleDocumentFormatting,
+  handleDocumentRangeFormatting,
+} from "./handlers/formatting";
+import {
+  handleCallHierarchyPrepare,
+  handleCallHierarchyIncomingCalls,
+  handleCallHierarchyOutgoingCalls,
+} from "./handlers/callHierarchy";
 
 const runtimeConfig = buildRuntimeConfig(process.argv.slice(2), process.env);
 
@@ -778,6 +794,42 @@ connection.onCodeAction((params) => {
 (connection as any).onLinkedEditingRange((params: LinkedEditingRangeParams) => {
   return handleLinkedEditingRange(params, documents, cssVariableManager);
 });
+
+// Semantic Tokens handler
+(connection as any).languages.semanticTokens.on(
+  (params: SemanticTokensParams) => {
+    return handleSemanticTokens(params, documents, cssVariableManager);
+  },
+);
+
+// Document Formatting handler
+connection.onDocumentFormatting((params) => {
+  return handleDocumentFormatting(params, documents);
+});
+
+// Document Range Formatting handler
+connection.onDocumentRangeFormatting((params) => {
+  return handleDocumentRangeFormatting(params, documents);
+});
+
+// Call Hierarchy handlers
+(connection as any).languages.callHierarchy.onPrepare(
+  (params: CallHierarchyPrepareParams) => {
+    return handleCallHierarchyPrepare(params, documents, cssVariableManager);
+  },
+);
+
+(connection as any).languages.callHierarchy.onIncomingCalls(
+  (params: CallHierarchyIncomingCallsParams) => {
+    return handleCallHierarchyIncomingCalls(params, cssVariableManager);
+  },
+);
+
+(connection as any).languages.callHierarchy.onOutgoingCalls(
+  (params: CallHierarchyOutgoingCallsParams) => {
+    return handleCallHierarchyOutgoingCalls(params, cssVariableManager);
+  },
+);
 
 // Find all references handler
 connection.onReferences((params) => {

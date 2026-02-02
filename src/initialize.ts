@@ -58,6 +58,16 @@ export function buildInitializeResult(
         codeActionKinds: ["quickfix"],
       },
       linkedEditingRangeProvider: true,
+      semanticTokensProvider: {
+        legend: {
+          tokenTypes: ["variable", "property", "value", "string", "comment"],
+          tokenModifiers: ["declaration", "readonly", "static"],
+        },
+        full: true,
+      },
+      documentFormattingProvider: true,
+      documentRangeFormattingProvider: true,
+      callHierarchyProvider: true,
     },
   };
 
