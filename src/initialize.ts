@@ -32,7 +32,6 @@ export function buildInitializeResult(
       definitionProvider: true,
       hoverProvider: true,
       referencesProvider: true,
-      renameProvider: true,
       documentSymbolProvider: true,
       workspaceSymbolProvider: true,
       colorProvider: enableColorProvider,
@@ -40,6 +39,25 @@ export function buildInitializeResult(
       typeDefinitionProvider: true,
       implementationProvider: true,
       documentHighlightProvider: true,
+      foldingRangeProvider: true,
+      selectionRangeProvider: true,
+      documentLinkProvider: {
+        resolveProvider: false,
+      },
+      codeLensProvider: {
+        resolveProvider: false,
+      },
+      inlayHintProvider: true,
+      signatureHelpProvider: {
+        triggerCharacters: ["(", ","],
+      },
+      renameProvider: {
+        prepareProvider: true,
+      },
+      codeActionProvider: {
+        codeActionKinds: ["quickfix"],
+      },
+      linkedEditingRangeProvider: true,
     },
   };
 
@@ -47,7 +65,7 @@ export function buildInitializeResult(
     result.capabilities.workspace = {
       workspaceFolders: {
         supported: true,
-        changeNotifications: 'kind',
+        changeNotifications: "kind",
       },
     };
   }

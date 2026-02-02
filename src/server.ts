@@ -16,6 +16,8 @@ import {
   WorkspaceSymbol,
   TextEdit,
   FileChangeType,
+  InlayHintParams,
+  LinkedEditingRangeParams,
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { CssVariable } from "./cssVariableManager";
@@ -41,6 +43,15 @@ import { handleDeclaration } from "./handlers/declaration";
 import { handleTypeDefinition } from "./handlers/typeDefinition";
 import { handleImplementation } from "./handlers/implementation";
 import { handleDocumentHighlight } from "./handlers/documentHighlight";
+import { handleFoldingRange } from "./handlers/foldingRange";
+import { handleSelectionRanges } from "./handlers/selectionRange";
+import { handleDocumentLinks } from "./handlers/documentLink";
+import { handleCodeLens } from "./handlers/codeLens";
+import { handleInlayHints } from "./handlers/inlayHint";
+import { handleSignatureHelp } from "./handlers/signatureHelp";
+import { handlePrepareRename } from "./handlers/prepareRename";
+import { handleCodeActions } from "./handlers/codeAction";
+import { handleLinkedEditingRange } from "./handlers/linkedEditingRange";
 
 const runtimeConfig = buildRuntimeConfig(process.argv.slice(2), process.env);
 
@@ -721,6 +732,51 @@ connection.onImplementation((params) => {
 // Document highlight handler
 connection.onDocumentHighlight((params) => {
   return handleDocumentHighlight(params, documents, cssVariableManager);
+});
+
+// Folding range handler
+connection.onFoldingRanges((params) => {
+  return handleFoldingRange(params, documents);
+});
+
+// Selection range handler
+connection.onSelectionRanges((params) => {
+  return handleSelectionRanges(params, documents);
+});
+
+// Document link handler
+connection.onDocumentLinks((params) => {
+  return handleDocumentLinks(params, documents);
+});
+
+// Code lens handler
+connection.onCodeLens((params) => {
+  return handleCodeLens(params, documents, cssVariableManager);
+});
+
+// Inlay Hint handler
+(connection as any).onInlayHint((params: InlayHintParams) => {
+  return handleInlayHints(params, documents, cssVariableManager);
+});
+
+// Signature Help handler
+connection.onSignatureHelp((params) => {
+  return handleSignatureHelp(params, documents, cssVariableManager);
+});
+
+// Prepare Rename handler
+connection.onPrepareRename((params) => {
+  return handlePrepareRename(params, documents, cssVariableManager);
+});
+
+// Code Action handler
+connection.onCodeAction((params) => {
+  return handleCodeActions(params, documents, cssVariableManager);
+});
+
+// Linked Editing Range handler
+(connection as any).onLinkedEditingRange((params: LinkedEditingRangeParams) => {
+  return handleLinkedEditingRange(params, documents, cssVariableManager);
 });
 
 // Find all references handler
