@@ -2,6 +2,17 @@
 
 **IMPORTANT**: This project uses **bd (beads)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other tracking methods.
 
+## Portfolio Tracking in Linear (Required)
+
+For cross-project release management, also mirror status in Linear project `css-lsp`.
+
+- Every work session must be mapped to a Linear issue.
+- When work starts, move the Linear issue to `Started`.
+- When work ends, update the issue with outcome and next step, then set `Backlog` or `Done`.
+- Pull requests must reference a Linear issue ID.
+- Do not run release actions without confirming related Linear issues are current.
+- bd remains the source of truth for repo-local dependency tracking; Linear is required as a portfolio mirror.
+
 ### Why bd?
 
 - Dependency-aware: Track blockers and relationships between issues
@@ -131,8 +142,9 @@ history/
 - ✅ Link discovered work with `discovered-from` dependencies
 - ✅ Check `bd ready` before asking "what should I work on?"
 - ✅ Store AI planning docs in `history/` directory
+- ✅ Mirror delivery/release status in Linear project `css-lsp`
 - ❌ Do NOT create markdown TODO lists
-- ❌ Do NOT use external issue trackers
+- ❌ Do NOT replace bd with external trackers for repo-local dependency planning
 - ❌ Do NOT duplicate tracking systems
 - ❌ Do NOT clutter repo root with planning documents
 
