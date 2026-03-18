@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import {
+  CodeAction,
   createConnection,
   TextDocuments,
   Diagnostic,
@@ -28,6 +29,11 @@ import {
   collectColorPresentations,
   collectDocumentColors,
 } from "./colorProvider";
+import {
+  collectColorReplacementDiagnostics,
+  getColorReplacementCodeActions,
+  getColorReplacementCompletionItems,
+} from "./colorVariableFeature";
 import { buildInitializeResult } from "./initialize";
 import { formatUriForDisplay, toNormalizedFsPath } from "./pathDisplay";
 import { buildRuntimeConfig } from "./runtimeConfig";
@@ -259,6 +265,10 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     }
   }
 
+  diagnostics.push(
+    ...collectColorReplacementDiagnostics(textDocument, cssVariableManager),
+  );
+
   // Send diagnostics to the client
   connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
 }
@@ -448,51 +458,60 @@ connection.onCompletion(
       document,
       textDocumentPosition.position,
     );
-    if (!completionContext) {
-      return [];
-    }
 
-    const propertyName = completionContext.propertyName;
+    if (completionContext) {
+      const propertyName = completionContext.propertyName;
 
-    const variables = cssVariableManager.getAllVariables();
-    // Deduplicate by name
-    const uniqueVars = new Map<string, CssVariable>();
-    variables.forEach((v) => {
-      if (!uniqueVars.has(v.name)) {
-        uniqueVars.set(v.name, v);
-      }
-    });
-
-    // Score and filter variables based on property context
-    const scoredVars = Array.from(uniqueVars.values()).map((v) => ({
-      variable: v,
-      score: scoreVariableRelevance(v.name, propertyName),
-    }));
-
-    // Filter out score 0 (not relevant) and sort by score (higher first)
-    const filteredAndSorted = scoredVars
-      .filter((sv) => sv.score !== 0)
-      .sort((a, b) => {
-        // Sort by score (descending)
-        if (a.score !== b.score) {
-          return b.score - a.score;
+      const variables = cssVariableManager.getAllVariables();
+      const uniqueVars = new Map<string, CssVariable>();
+      variables.forEach((v) => {
+        if (!uniqueVars.has(v.name)) {
+          uniqueVars.set(v.name, v);
         }
-        // Same score: alphabetical order
-        return a.variable.name.localeCompare(b.variable.name);
       });
 
-    return filteredAndSorted.map((sv) => ({
-      label: sv.variable.name,
-      kind: CompletionItemKind.Variable,
-      detail: sv.variable.value,
-      documentation: `Defined in ${formatUriForDisplay(sv.variable.uri, {
-        mode: runtimeConfig.pathDisplayMode,
-        abbrevLength: runtimeConfig.pathDisplayAbbrevLength,
-        workspaceFolderPaths,
-        rootFolderPath,
-      })}`,
-      insertText: sv.variable.name,
-    }));
+      const scoredVars = Array.from(uniqueVars.values()).map((v) => ({
+        variable: v,
+        score: scoreVariableRelevance(v.name, propertyName),
+      }));
+
+      const filteredAndSorted = scoredVars
+        .filter((sv) => sv.score !== 0)
+        .sort((a, b) => {
+          if (a.score !== b.score) {
+            return b.score - a.score;
+          }
+          return a.variable.name.localeCompare(b.variable.name);
+        });
+
+      return filteredAndSorted.map((sv) => ({
+        label: sv.variable.name,
+        kind: CompletionItemKind.Variable,
+        detail: sv.variable.value,
+        documentation: `Defined in ${formatUriForDisplay(sv.variable.uri, {
+          mode: runtimeConfig.pathDisplayMode,
+          abbrevLength: runtimeConfig.pathDisplayAbbrevLength,
+          workspaceFolderPaths,
+          rootFolderPath,
+        })}`,
+        insertText: sv.variable.name,
+      }));
+    }
+
+    return getColorReplacementCompletionItems(
+      document,
+      textDocumentPosition.position,
+      cssVariableManager,
+      {
+        formatLocation: (uri) =>
+          formatUriForDisplay(uri, {
+            mode: runtimeConfig.pathDisplayMode,
+            abbrevLength: runtimeConfig.pathDisplayAbbrevLength,
+            workspaceFolderPaths,
+            rootFolderPath,
+          }),
+      },
+    );
   },
 );
 
@@ -766,6 +785,15 @@ connection.onRenameRequest((params) => {
   }
 
   return null;
+});
+
+connection.onCodeAction((params): CodeAction[] => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) {
+    return [];
+  }
+
+  return getColorReplacementCodeActions(document, params.context.diagnostics);
 });
 
 // Document symbols handler

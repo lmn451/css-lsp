@@ -7,7 +7,7 @@ import * as csstree from "css-tree";
 import { DOMTree, DOMNodeInfo } from "./domTree";
 import { parse } from "node-html-parser";
 import { Color } from "vscode-languageserver/node";
-import { parseColor } from "./colorService";
+import { getNormalizedColorKey, parseColor } from "./colorService";
 import { calculateSpecificity, compareSpecificity } from "./specificity";
 import * as path from "path";
 
@@ -31,6 +31,15 @@ export interface CssVariableUsage {
   nameRange?: Range;
   usageContext: string; // CSS selector where this variable is used
   domNode?: DOMNodeInfo; // DOM node if usage is in HTML
+}
+
+export interface CssColorLiteral {
+  uri: string;
+  range: Range;
+  value: string;
+  color: Color;
+  propertyName: string;
+  variableName?: string;
 }
 
 export interface Logger {
@@ -117,6 +126,7 @@ function normalizeUri(uri: string): string {
 export class CssVariableManager {
   private variables: Map<string, CssVariable[]> = new Map();
   private usages: Map<string, CssVariableUsage[]> = new Map();
+  private colorLiterals: Map<string, CssColorLiteral[]> = new Map();
   private domTrees: Map<string, DOMTree> = new Map(); // URI -> DOM tree
   private logger: Logger;
   private lookupFiles: string[];
@@ -452,6 +462,16 @@ export class CssVariableManager {
             }
           }
 
+          if (node.type === "Declaration" && node.value) {
+            this.collectColorLiteralsFromDeclaration(
+              node,
+              uri,
+              document,
+              text,
+              offset
+            );
+          }
+
           if (node.type === "Function" && node.name === "var") {
             const children = node.children;
             if (children && children.first) {
@@ -612,6 +632,16 @@ export class CssVariableManager {
             }
           }
 
+          if (node.type === "Declaration" && node.value) {
+            this.collectColorLiteralsFromDeclaration(
+              node,
+              uri,
+              document,
+              text,
+              offset
+            );
+          }
+
           if (node.type === "Function" && node.name === "var") {
             const children = node.children;
             if (children && children.first) {
@@ -669,6 +699,111 @@ export class CssVariableManager {
     }
   }
 
+  private collectColorLiteralsFromDeclaration(
+    declaration: csstree.Declaration,
+    uri: string,
+    document: TextDocument,
+    text: string,
+    offset: number
+  ): void {
+    const literals = this.colorLiterals.get(normalizeUri(uri)) || [];
+
+    this.collectColorLiteralsFromValue(
+      declaration.value,
+      uri,
+      document,
+      text,
+      offset,
+      declaration.property,
+      literals
+    );
+
+    if (declaration.value.type === "Raw" && declaration.value.loc) {
+      try {
+        const rawAst = csstree.parse(declaration.value.value, {
+          context: "value",
+          positions: true,
+        });
+        this.collectColorLiteralsFromValue(
+          rawAst,
+          uri,
+          document,
+          declaration.value.value,
+          offset + declaration.value.loc.start.offset,
+          declaration.property,
+          literals
+        );
+      } catch (error) {
+        this.logger.log(
+          `[css-lsp] Raw value parse error in ${uri}: ${String(error)}`
+        );
+      }
+    }
+
+    this.colorLiterals.set(normalizeUri(uri), literals);
+  }
+
+  private collectColorLiteralsFromValue(
+    valueNode: csstree.CssNode,
+    uri: string,
+    document: TextDocument,
+    sourceText: string,
+    baseOffset: number,
+    propertyName: string,
+    literals: CssColorLiteral[]
+  ): void {
+    csstree.walk(valueNode, {
+      enter: (node: csstree.CssNode) => {
+        if (node.type === "Function" && node.name === "var") {
+          return csstree.walk.skip;
+        }
+
+        if (
+          node.type !== "Hash" &&
+          node.type !== "Function" &&
+          node.type !== "Identifier"
+        ) {
+          return;
+        }
+
+        if (!node.loc) {
+          return;
+        }
+
+        const value = csstree.generate(node).trim();
+        const color = parseColor(value, { allowNamedColors: true });
+        if (!color) {
+          return;
+        }
+
+        const rawValueText = sourceText.substring(
+          node.loc.start.offset,
+          node.loc.end.offset
+        );
+        const leadingWhitespace =
+          rawValueText.length - rawValueText.trimStart().length;
+        const trailingWhitespace =
+          rawValueText.length - rawValueText.trimEnd().length;
+
+        const startOffset =
+          baseOffset + node.loc.start.offset + leadingWhitespace;
+        const endOffset = baseOffset + node.loc.end.offset - trailingWhitespace;
+
+        literals.push({
+          uri,
+          range: Range.create(
+            document.positionAt(startOffset),
+            document.positionAt(endOffset)
+          ),
+          value,
+          color,
+          propertyName,
+          variableName: propertyName.startsWith("--") ? propertyName : undefined,
+        });
+      },
+    });
+  }
+
   public async updateFile(uri: string): Promise<void> {
     try {
       const filePath = URI.parse(uri).fsPath;
@@ -703,6 +838,7 @@ export class CssVariableManager {
     const normalizedUri = normalizeUri(uri);
     this.clearDocumentVariables(normalizedUri);
     this.clearDocumentUsages(normalizedUri);
+    this.clearDocumentColorLiterals(normalizedUri);
     this.clearDocumentDOMTree(normalizedUri);
   }
 
@@ -734,6 +870,10 @@ export class CssVariableManager {
     }
   }
 
+  public clearDocumentColorLiterals(uri: string): void {
+    this.colorLiterals.delete(normalizeUri(uri));
+  }
+
   public clearDocumentDOMTree(uri: string): void {
     this.domTrees.delete(uri);
   }
@@ -753,6 +893,10 @@ export class CssVariableManager {
 
   public getVariableUsages(name: string): CssVariableUsage[] {
     return this.usages.get(name) || [];
+  }
+
+  public getDocumentColorLiterals(uri: string): CssColorLiteral[] {
+    return this.colorLiterals.get(normalizeUri(uri)) || [];
   }
 
   /**
@@ -787,6 +931,32 @@ export class CssVariableManager {
     return this.domTrees.get(uri);
   }
 
+  public getVariablesByColor(
+    color: Color,
+    options: { excludeName?: string } = {}
+  ): CssVariable[] {
+    const key = getNormalizedColorKey(color);
+    const matches: CssVariable[] = [];
+
+    for (const name of this.variables.keys()) {
+      if (options.excludeName && name === options.excludeName) {
+        continue;
+      }
+
+      const resolvedColor = this.resolveVariableColor(name);
+      if (!resolvedColor || getNormalizedColorKey(resolvedColor) !== key) {
+        continue;
+      }
+
+      const winningDefinition = this.getWinningVariableDefinition(name);
+      if (winningDefinition) {
+        matches.push(winningDefinition);
+      }
+    }
+
+    return matches.toSorted((a, b) => a.name.localeCompare(b.name));
+  }
+
   /**
    * Resolve a variable name to a Color if possible.
    * Handles recursive variable references: var(--a) -> var(--b) -> #fff
@@ -809,34 +979,10 @@ export class CssVariableManager {
 
     // Apply CSS cascade rules to find the winning definition
     // Sort by cascade rules: !important > specificity > source order
-    const sortedVars = [...variables].sort((a, b) => {
-      // !important always wins (unless both are !important)
-      if (a.important !== b.important) {
-        return a.important ? -1 : 1;
-      }
-
-      // Inline styles win over non-inline styles
-      const aInline = a.inline ?? false;
-      const bInline = b.inline ?? false;
-      if (aInline !== bInline) {
-        return aInline ? -1 : 1;
-      }
-
-      // After !important, check specificity
-      const specA = calculateSpecificity(a.selector);
-      const specB = calculateSpecificity(b.selector);
-      const specCompare = compareSpecificity(specA, specB);
-
-      if (specCompare !== 0) {
-        return -specCompare; // Negative for descending order
-      }
-
-      // Equal specificity - later in source wins
-      return b.sourcePosition - a.sourcePosition;
-    });
-
-    // Use the winning definition (first after sort)
-    const variable = sortedVars[0];
+    const variable = this.getWinningVariableDefinition(name);
+    if (!variable) {
+      return null;
+    }
     let value = variable.value;
 
     // Check if it's a reference to another variable
@@ -848,5 +994,34 @@ export class CssVariableManager {
     }
 
     return parseColor(value, { allowNamedColors: true });
+  }
+
+  private getWinningVariableDefinition(name: string): CssVariable | null {
+    const variables = this.getVariables(name);
+    if (variables.length === 0) {
+      return null;
+    }
+
+    return [...variables].sort((a, b) => {
+      if (a.important !== b.important) {
+        return a.important ? -1 : 1;
+      }
+
+      const aInline = a.inline ?? false;
+      const bInline = b.inline ?? false;
+      if (aInline !== bInline) {
+        return aInline ? -1 : 1;
+      }
+
+      const specA = calculateSpecificity(a.selector);
+      const specB = calculateSpecificity(b.selector);
+      const specCompare = compareSpecificity(specA, specB);
+
+      if (specCompare !== 0) {
+        return -specCompare;
+      }
+
+      return b.sourcePosition - a.sourcePosition;
+    })[0];
   }
 }
