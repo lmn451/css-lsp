@@ -60,6 +60,10 @@ Command-line flags:
 
 Environment variables:
 
+- `CSS_LSP_COLOR_REPLACEMENT_DIAGNOSTICS=0` (disable "replace literal with CSS variable" suggestions)
+
+Environment variables:
+
 - `CSS_LSP_COLOR_ONLY_VARIABLES=1` (same as `--color-only-variables`)
 - `CSS_LSP_LOOKUP_FILES` (comma-separated glob patterns; ignored if CLI lookup flags are provided)
 - `CSS_LSP_IGNORE_GLOBS` (comma-separated glob patterns; ignored if CLI ignore flags are provided)

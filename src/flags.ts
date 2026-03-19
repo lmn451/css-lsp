@@ -91,6 +91,7 @@ const FLAGS = {
     positive: "--color-replacement-diagnostics",
     negative: "--no-color-replacement-diagnostics",
     default: true,
+    envKey: "CSS_LSP_COLOR_REPLACEMENT_DIAGNOSTICS",
   },
   lookupFiles: {
     kind: "list" as const,
@@ -165,7 +166,10 @@ function splitList(value: string): string[] {
 function parseBool(flag: BoolFlagDef, argv: string[], env: NodeJS.ProcessEnv): boolean {
   if (argv.includes(flag.negative)) return false;
   if (argv.includes(flag.positive)) return true;
-  if (flag.envKey && env[flag.envKey] === "1") return true;
+  if (flag.envKey) {
+    if (env[flag.envKey] === "0") return false;
+    if (env[flag.envKey] === "1") return true;
+  }
   return flag.default;
 }
 

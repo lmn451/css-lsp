@@ -240,3 +240,8 @@ test("color replacement diagnostics disabled with --no-color-replacement-diagnos
   const config = buildRuntimeConfig(["--no-color-replacement-diagnostics"], makeEnv());
   assert.equal(config.enableColorReplacementDiagnostics, false);
 });
+
+test("color replacement diagnostics disabled with env var", () => {
+  const config = buildRuntimeConfig([], makeEnv({ CSS_LSP_COLOR_REPLACEMENT_DIAGNOSTICS: "0" }));
+  assert.equal(config.enableColorReplacementDiagnostics, false);
+});
