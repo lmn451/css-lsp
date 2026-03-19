@@ -39,7 +39,7 @@ export function collectColorReplacementDiagnostics(
       const message =
         variableNames.length === 1
           ? `Literal color can be replaced with matching CSS variable '${variableNames[0]}'`
-          : `Literal color can be replaced with ${variableNames.length} matching CSS variables`;
+          : `Literal color can be replaced with matching CSS variables: ${variableNames.map((n) => `'${n}'`).join(", ")}`;
 
       return [
         {

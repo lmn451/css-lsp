@@ -62,7 +62,7 @@ test("diagnostics are informational and preserve multiple variable options", () 
 
   assert.strictEqual(diagnostics.length, 1);
   assert.strictEqual(diagnostics[0].severity, DiagnosticSeverity.Information);
-  assert.match(diagnostics[0].message, /2 matching CSS variables/);
+  assert.match(diagnostics[0].message, /matching CSS variables: '--paper', '--white'/);
 });
 
 test("diagnostics exclude self-references inside matching custom property definitions", () => {
@@ -80,6 +80,19 @@ test("diagnostics exclude self-references inside matching custom property defini
   assert.strictEqual(diagnostics.length, 1);
   assert.match(diagnostics[0].message, /'--paper'/);
   assert.doesNotMatch(diagnostics[0].message, /'--white'/);
+});
+
+test("diagnostic message includes variable name when only one match", () => {
+  const manager = new CssVariableManager();
+  manager.parseContent(":root { --white: #fff; }", "file:///vars.css", "css");
+  const doc = createDoc("file:///test.css", ".title { color: white; }");
+
+  manager.parseDocument(doc);
+  const diagnostics = collectColorReplacementDiagnostics(doc, manager);
+
+  assert.strictEqual(diagnostics.length, 1);
+  assert.strictEqual(diagnostics[0].severity, DiagnosticSeverity.Information);
+  assert.match(diagnostics[0].message, /matching CSS variable '--white'/);
 });
 
 test("completion items replace the full literal color token", () => {
