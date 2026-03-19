@@ -48,6 +48,7 @@ This is a standalone LSP server. Configure it in any LSP client.
 Command-line flags:
 
 - `--no-color-preview`
+- `--no-color-replacement-diagnostics` (disable "replace literal with CSS variable" suggestions)
 - `--color-only-variables` (show colors only on `var(--...)` usages)
 - `--lookup-files "<glob>,<glob>"` (comma-separated list of glob patterns)
 - `--lookup-file "<glob>"` (repeatable)
