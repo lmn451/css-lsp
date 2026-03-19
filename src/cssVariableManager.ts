@@ -128,6 +128,8 @@ export class CssVariableManager {
   private usages: Map<string, CssVariableUsage[]> = new Map();
   private colorLiterals: Map<string, CssColorLiteral[]> = new Map();
   private domTrees: Map<string, DOMTree> = new Map(); // URI -> DOM tree
+  private colorIndex: Map<string, Set<string>> = new Map(); // color key -> variable names
+  private colorIndexDirty: boolean = true;
   private logger: Logger;
   private lookupFiles: string[];
   private ignoreGlobs: string[];
@@ -169,6 +171,35 @@ export class CssVariableManager {
       }
     }
     return extensions;
+  }
+
+  /**
+   * Rebuild the color index for O(1) color lookups.
+   * Should be called when variables change.
+   */
+  private rebuildColorIndex(): void {
+    this.colorIndex.clear();
+    
+    for (const name of this.variables.keys()) {
+      const resolvedColor = this.resolveVariableColor(name);
+      if (resolvedColor) {
+        const key = getNormalizedColorKey(resolvedColor);
+        if (!this.colorIndex.has(key)) {
+          this.colorIndex.set(key, new Set());
+        }
+        this.colorIndex.get(key)!.add(name);
+      }
+    }
+    
+    this.colorIndexDirty = false;
+  }
+  /**
+   * Ensure the color index is up to date.
+   */
+  private ensureColorIndex(): void {
+    if (this.colorIndexDirty) {
+      this.rebuildColorIndex();
+    }
   }
 
   private resolveLanguageId(filePath: string): string | null {
@@ -459,6 +490,7 @@ export class CssVariableManager {
                 this.variables.set(name, []);
               }
               this.variables.get(name)?.push(variable);
+              this.colorIndexDirty = true;
             }
           }
 
@@ -629,6 +661,7 @@ export class CssVariableManager {
                 this.variables.set(name, []);
               }
               this.variables.get(name)?.push(variable);
+              this.colorIndexDirty = true;
             }
           }
 
@@ -854,8 +887,8 @@ export class CssVariableManager {
         this.variables.set(name, filtered);
       }
     }
+    this.colorIndexDirty = true;
   }
-
   public clearDocumentUsages(uri: string): void {
     const normalizedUri = normalizeUri(uri);
     for (const [name, usgs] of this.usages.entries()) {
@@ -935,28 +968,23 @@ export class CssVariableManager {
     color: Color,
     options: { excludeName?: string } = {}
   ): CssVariable[] {
+    this.ensureColorIndex();
     const key = getNormalizedColorKey(color);
+    const names = this.colorIndex.get(key) || new Set();
+    
     const matches: CssVariable[] = [];
-
-    for (const name of this.variables.keys()) {
+    for (const name of names) {
       if (options.excludeName && name === options.excludeName) {
         continue;
       }
-
-      const resolvedColor = this.resolveVariableColor(name);
-      if (!resolvedColor || getNormalizedColorKey(resolvedColor) !== key) {
-        continue;
-      }
-
       const winningDefinition = this.getWinningVariableDefinition(name);
       if (winningDefinition) {
         matches.push(winningDefinition);
       }
     }
-
+    
     return matches.toSorted((a, b) => a.name.localeCompare(b.name));
   }
-
   /**
    * Resolve a variable name to a Color if possible.
    * Handles recursive variable references: var(--a) -> var(--b) -> #fff

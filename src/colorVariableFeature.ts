@@ -27,91 +27,103 @@ export function collectColorReplacementDiagnostics(
   document: TextDocument,
   cssVariableManager: CssVariableManager
 ): Diagnostic[] {
-  return cssVariableManager
-    .getDocumentColorLiterals(document.uri)
-    .flatMap((literal) => {
-      // Skip color literals that are part of variable definitions (--var: color)
-      // We only want to show diagnostics on usages, not definitions
-      if (literal.variableName) {
-        return [];
-      }
+  try {
+    return cssVariableManager
+      .getDocumentColorLiterals(document.uri)
+      .flatMap((literal) => {
+        // Skip color literals that are part of variable definitions (--var: color)
+        // We only want to show diagnostics on usages, not definitions
+        if (literal.variableName) {
+          return [];
+        }
 
-      const matches = getMatchingVariables(literal, cssVariableManager);
-      if (matches.length === 0) {
-        return [];
-      }
+        const matches = getMatchingVariables(literal, cssVariableManager);
+        if (matches.length === 0) {
+          return [];
+        }
 
-      const variableNames = matches.map((match) => match.name);
-      const message =
-        variableNames.length === 1
-          ? `Literal color can be replaced with matching CSS variable '${variableNames[0]}'`
-          : `Literal color can be replaced with matching CSS variables: ${variableNames.map((n) => `'${n}'`).join(", ")}`;
+        const variableNames = matches.map((match) => match.name);
+        const message =
+          variableNames.length === 1
+            ? `Literal color can be replaced with matching CSS variable '${variableNames[0]}'`
+            : `Literal color can be replaced with matching CSS variables: ${variableNames.map((n) => `'${n}'`).join(", ")}`;
 
-      return [
-        {
-          severity: DiagnosticSeverity.Information,
-          range: literal.range,
-          message,
-          source: "css-variable-lsp",
-          code: COLOR_REPLACEMENT_DIAGNOSTIC_CODE,
-          data: {
-            kind: COLOR_REPLACEMENT_DIAGNOSTIC_CODE,
-            variableNames,
-          } satisfies ColorReplacementDiagnosticData,
-        },
-      ];
-    });
+        return [
+          {
+            severity: DiagnosticSeverity.Information,
+            range: literal.range,
+            message,
+            source: "css-variable-lsp",
+            code: COLOR_REPLACEMENT_DIAGNOSTIC_CODE,
+            data: {
+              kind: COLOR_REPLACEMENT_DIAGNOSTIC_CODE,
+              variableNames,
+            } satisfies ColorReplacementDiagnosticData,
+          },
+        ];
+      });
+  } catch (error) {
+    console.error("Error collecting color diagnostics:", error);
+    return [];
+  }
 }
-
 export function getColorReplacementCompletionItems(
   document: TextDocument,
   position: Position,
   cssVariableManager: CssVariableManager,
   displayOptions: CompletionDisplayOptions
 ): CompletionItem[] {
-  const literal = findColorLiteralAtPosition(document, position, cssVariableManager);
-  if (!literal) {
+  try {
+    const literal = findColorLiteralAtPosition(document, position, cssVariableManager);
+    if (!literal) {
+      return [];
+    }
+
+    return getMatchingVariables(literal, cssVariableManager).map((match) =>
+      createColorReplacementCompletionItem(document, literal.range, match, displayOptions)
+    );
+  } catch (error) {
+    console.error("Error getting color replacement completions:", error);
     return [];
   }
-
-  return getMatchingVariables(literal, cssVariableManager).map((match) =>
-    createColorReplacementCompletionItem(document, literal.range, match, displayOptions)
-  );
 }
-
 export function getColorReplacementCodeActions(
   document: TextDocument,
   diagnostics: Diagnostic[]
 ): CodeAction[] {
-  const actions: CodeAction[] = [];
+  try {
+    const actions: CodeAction[] = [];
 
-  for (const diagnostic of diagnostics) {
-    if (diagnostic.code !== COLOR_REPLACEMENT_DIAGNOSTIC_CODE) {
-      continue;
-    }
+    for (const diagnostic of diagnostics) {
+      if (diagnostic.code !== COLOR_REPLACEMENT_DIAGNOSTIC_CODE) {
+        continue;
+      }
 
-    const data = diagnostic.data as ColorReplacementDiagnosticData | undefined;
-    const variableNames = data?.variableNames || [];
+      const data = diagnostic.data as ColorReplacementDiagnosticData | undefined;
+      const variableNames = data?.variableNames || [];
 
-    for (const variableName of variableNames) {
-      actions.push({
-        title: `Replace with var(${variableName})`,
-        kind: CodeActionKind.QuickFix,
-        diagnostics: [diagnostic],
-        edit: {
-          changes: {
-            [document.uri]: [
-              TextEdit.replace(diagnostic.range, `var(${variableName})`),
-            ],
+      for (const variableName of variableNames) {
+        actions.push({
+          title: `Replace with var(${variableName})`,
+          kind: CodeActionKind.QuickFix,
+          diagnostics: [diagnostic],
+          edit: {
+            changes: {
+              [document.uri]: [
+                TextEdit.replace(diagnostic.range, `var(${variableName})`),
+              ],
+            },
           },
-        },
-      });
+        });
+      }
     }
+
+    return actions;
+  } catch (error) {
+    console.error("Error getting color replacement code actions:", error);
+    return [];
   }
-
-  return actions;
 }
-
 function findColorLiteralAtPosition(
   document: TextDocument,
   position: Position,
