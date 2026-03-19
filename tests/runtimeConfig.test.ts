@@ -19,6 +19,7 @@ test("runtime config defaults", () => {
 
   assert.equal(config.enableColorProvider, true);
   assert.equal(config.colorOnlyOnVariables, false);
+  assert.equal(config.enableColorReplacementDiagnostics, true);
   assert.equal(config.lookupFiles, undefined);
   assert.equal(config.ignoreGlobs, undefined);
   assert.equal(config.pathDisplayMode, "relative");
@@ -228,4 +229,14 @@ test("undefined var fallback mode ignores invalid values", () => {
     makeEnv(),
   );
   assert.equal(config.undefinedVarFallback, "warning");
+});
+
+test("color replacement diagnostics enabled by default", () => {
+  const config = buildRuntimeConfig([], makeEnv());
+  assert.equal(config.enableColorReplacementDiagnostics, true);
+});
+
+test("color replacement diagnostics disabled with --no-color-replacement-diagnostics", () => {
+  const config = buildRuntimeConfig(["--no-color-replacement-diagnostics"], makeEnv());
+  assert.equal(config.enableColorReplacementDiagnostics, false);
 });

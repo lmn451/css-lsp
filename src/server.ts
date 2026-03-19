@@ -265,9 +265,11 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     }
   }
 
-  diagnostics.push(
-    ...collectColorReplacementDiagnostics(textDocument, cssVariableManager),
-  );
+  if (runtimeConfig.enableColorReplacementDiagnostics) {
+    diagnostics.push(
+      ...collectColorReplacementDiagnostics(textDocument, cssVariableManager),
+    );
+  }
 
   // Send diagnostics to the client
   connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
