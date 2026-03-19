@@ -30,6 +30,12 @@ export function collectColorReplacementDiagnostics(
   return cssVariableManager
     .getDocumentColorLiterals(document.uri)
     .flatMap((literal) => {
+      // Skip color literals that are part of variable definitions (--var: color)
+      // We only want to show diagnostics on usages, not definitions
+      if (literal.variableName) {
+        return [];
+      }
+
       const matches = getMatchingVariables(literal, cssVariableManager);
       if (matches.length === 0) {
         return [];

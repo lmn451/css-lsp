@@ -65,10 +65,10 @@ test("diagnostics are informational and preserve multiple variable options", () 
   assert.match(diagnostics[0].message, /matching CSS variables: '--paper', '--white'/);
 });
 
-test("diagnostics exclude self-references inside matching custom property definitions", () => {
+test("diagnostics are not shown on variable definitions", () => {
   const manager = new CssVariableManager();
   manager.parseContent(
-    ":root { --white: #fff; --paper: #fff; }",
+    ":root { --white: #fff; --paper: rgb(255 255 255); }",
     "file:///vars.css",
     "css"
   );
@@ -77,9 +77,8 @@ test("diagnostics exclude self-references inside matching custom property defini
   manager.parseDocument(doc);
   const diagnostics = collectColorReplacementDiagnostics(doc, manager);
 
-  assert.strictEqual(diagnostics.length, 1);
-  assert.match(diagnostics[0].message, /'--paper'/);
-  assert.doesNotMatch(diagnostics[0].message, /'--white'/);
+  // No diagnostics on definitions (only on usages)
+  assert.strictEqual(diagnostics.length, 0);
 });
 
 test("diagnostic message includes variable name when only one match", () => {
