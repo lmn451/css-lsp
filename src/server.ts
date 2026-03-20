@@ -206,13 +206,9 @@ function getAffectedDocuments(editedUri: string): Set<string> {
   return affected;
 }
 
-function scheduleValidateAllOpenDocuments(excludeUri?: string): void {
+function scheduleValidateAllOpenDocuments(excludeUri: string): void {
   if (validateAllTimeout) {
     clearTimeout(validateAllTimeout);
-  }
-
-  if (!excludeUri) {
-    return;
   }
 
   validateAllTimeout = setTimeout(() => {
