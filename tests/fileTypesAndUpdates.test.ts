@@ -2,13 +2,23 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { CssVariableManager } from "../src/cssVariableManager";
 import { TextDocument } from "vscode-languageserver-textdocument";
+import { Logger } from "../src/logger";
+
+class SilentLogger implements Logger {
+  debug(_label: string, _payload?: unknown): void {}
+  info(_label: string, _payload?: unknown): void {}
+  warn(_label: string, _payload?: unknown): void {}
+  error(_label: string, _payload?: unknown): void {}
+}
+
+const silentLogger = new SilentLogger();
 
 function createDoc(uri: string, content: string, languageId: string = "css") {
   return TextDocument.create(uri, languageId, 1, content);
 }
 
 test("SCSS support", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const content = `
 	$ignored-sass-var: 10px;
 	:root {
@@ -37,7 +47,7 @@ test("SCSS support", () => {
 });
 
 test("LESS support", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const content = `
 	@ignored-less-var: 10px;
 	:root {
@@ -53,7 +63,7 @@ test("LESS support", () => {
 });
 
 test("incremental updates remove file", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const uri = "file:///incremental.css";
   const doc = createDoc(uri, ":root { --incremental: yes; }");
 
@@ -65,7 +75,7 @@ test("incremental updates remove file", () => {
 });
 
 test("incremental updates overwrite file", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const uri = "file:///update.css";
 
   manager.parseDocument(createDoc(uri, ":root { --update-var: v1; }"));

@@ -2,13 +2,16 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import * as fs from "node:fs";
 import * as os from "node:os";
-import * as path from "node:path";
+import * as path from "path";
 import { URI } from "vscode-uri";
 import { CssVariableManager } from "../src/cssVariableManager";
+import { Logger } from "../src/logger";
 
-class SilentLogger {
-  log(_message: string) {}
-  error(_message: string) {}
+class SilentLogger implements Logger {
+  debug(_label: string, _payload?: unknown) {}
+  info(_label: string, _payload?: unknown) {}
+  warn(_label: string, _payload?: unknown) {}
+  error(_label: string, _payload?: unknown) {}
 }
 
 function writeFile(filePath: string, content: string) {

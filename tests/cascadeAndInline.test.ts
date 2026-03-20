@@ -2,13 +2,23 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { CssVariableManager } from "../src/cssVariableManager";
 import { TextDocument } from "vscode-languageserver-textdocument";
+import { Logger } from "../src/logger";
+
+class SilentLogger implements Logger {
+  debug(_label: string, _payload?: unknown): void {}
+  info(_label: string, _payload?: unknown): void {}
+  warn(_label: string, _payload?: unknown): void {}
+  error(_label: string, _payload?: unknown): void {}
+}
+
+const silentLogger = new SilentLogger();
 
 function createDoc(uri: string, content: string, languageId: string = "css") {
   return TextDocument.create(uri, languageId, 1, content);
 }
 
 test("!important tracking", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = ":root { --color: red !important; } div { --color: blue; }";
   const doc = createDoc("file:///test.css", css);
   manager.parseDocument(doc);
@@ -26,7 +36,7 @@ test("!important tracking", () => {
 });
 
 test("source order tracking", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = ":root { --a: first; } :root { --a: second; }";
   const doc = createDoc("file:///test.css", css);
   manager.parseDocument(doc);
@@ -37,7 +47,7 @@ test("source order tracking", () => {
 });
 
 test("inline style parsing", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const html =
     '<div style="color: var(--primary); background: var(--bg);"></div>';
   const doc = createDoc("file:///test.html", html, "html");
@@ -52,7 +62,7 @@ test("inline style parsing", () => {
 });
 
 test("inline style definitions are tracked", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const html =
     '<div style="--inline-color: red; color: var(--inline-color);"></div>';
   const doc = createDoc("file:///test.html", html, "html");
@@ -65,7 +75,7 @@ test("inline style definitions are tracked", () => {
 });
 
 test("combined cascade tracking", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = `
 		:root { --x: root; }
 		div { --x: div; }

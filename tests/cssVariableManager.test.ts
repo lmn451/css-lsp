@@ -2,13 +2,23 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { CssVariableManager } from "../src/cssVariableManager";
 import { TextDocument } from "vscode-languageserver-textdocument";
+import { Logger } from "../src/logger";
+
+class SilentLogger implements Logger {
+  debug(_label: string, _payload?: unknown): void {}
+  info(_label: string, _payload?: unknown): void {}
+  warn(_label: string, _payload?: unknown): void {}
+  error(_label: string, _payload?: unknown): void {}
+}
+
+const silentLogger = new SilentLogger();
 
 function createDoc(uri: string, content: string, languageId: string = "css") {
   return TextDocument.create(uri, languageId, 1, content);
 }
 
 test("basic CSS extraction", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const doc = createDoc("file:///test.css", ":root { --main-color: red; }");
   manager.parseDocument(doc);
   const vars = manager.getAllVariables();
@@ -18,7 +28,7 @@ test("basic CSS extraction", () => {
 });
 
 test("HTML style extraction", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const htmlContent = `
 <html>
 <style>
@@ -34,7 +44,7 @@ test("HTML style extraction", () => {
 });
 
 test("HTML-like language ids parse embedded styles", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const vueContent = `
 <template>
   <div style="--inline-color: red;"></div>
@@ -55,7 +65,7 @@ test("HTML-like language ids parse embedded styles", () => {
 });
 
 test("unknown language ids fall back to file extension", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const htmlContent = `
 <html>
   <body>
@@ -71,7 +81,7 @@ test("unknown language ids fall back to file extension", () => {
 });
 
 test("multiple variables and updates", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const doc = createDoc(
     "file:///test.css",
     ":root { --v1: 10px; --v2: 20px; }",
@@ -87,7 +97,7 @@ test("multiple variables and updates", () => {
 });
 
 test("usage tracking and references", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const doc = createDoc(
     "file:///test.css",
     ":root { --color: red; } .box { color: var(--color); }",
@@ -102,7 +112,7 @@ test("usage tracking and references", () => {
 });
 
 test("rename support collects defs and usages", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const doc = createDoc(
     "file:///test.css",
     ":root { --old: red; } .box { color: var(--old); }",
@@ -120,7 +130,7 @@ test("rename support collects defs and usages", () => {
 });
 
 test("selector tracking for scoped overrides", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const htmlContent = `
 <html>
 <style>
