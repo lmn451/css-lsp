@@ -153,6 +153,14 @@ connection.onInitialized(async () => {
 // Handle document close events
 documents.onDidClose(async (e) => {
   logger.debug("documentClosed", { uri: e.document.uri });
+
+  // Clear any pending validation timeout to prevent memory leak
+  const existingTimeout = validationTimeouts.get(e.document.uri);
+  if (existingTimeout) {
+    clearTimeout(existingTimeout);
+    validationTimeouts.delete(e.document.uri);
+  }
+
   // When a document is closed, we need to revert to the file system version
   // instead of removing it completely (which would break workspace files).
   // This handles cases where the editor had unsaved changes.
