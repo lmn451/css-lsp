@@ -182,18 +182,52 @@ function scheduleValidation(textDocument: TextDocument): void {
   validationTimeouts.set(uri, timeout);
 }
 
+function getAffectedDocuments(editedUri: string): Set<string> {
+  const affected = new Set<string>();
+
+  // Get variables defined in the edited file
+  const definedVars = cssVariableManager.getDocumentDefinitions(editedUri);
+
+  // Find all documents that use those variables
+  for (const def of definedVars) {
+    const usages = cssVariableManager.getVariableUsages(def.name);
+    for (const usage of usages) {
+      affected.add(usage.uri);
+    }
+  }
+
+  // Also include documents with color literals (might match new variables)
+  for (const doc of documents.all()) {
+    if (cssVariableManager.getDocumentColorLiterals(doc.uri).length > 0) {
+      affected.add(doc.uri);
+    }
+  }
+
+  return affected;
+}
+
 function scheduleValidateAllOpenDocuments(excludeUri?: string): void {
   if (validateAllTimeout) {
     clearTimeout(validateAllTimeout);
   }
 
+  if (!excludeUri) {
+    return;
+  }
+
   validateAllTimeout = setTimeout(() => {
-    documents.all().forEach((document) => {
-      if (excludeUri && document.uri === excludeUri) {
-        return;
+    const affectedUris = getAffectedDocuments(excludeUri);
+
+    for (const uri of affectedUris) {
+      if (uri === excludeUri) {
+        continue;
       }
-      validateTextDocument(document);
-    });
+      const doc = documents.get(uri);
+      if (doc) {
+        validateTextDocument(doc);
+      }
+    }
+
     validateAllTimeout = null;
   }, 300);
 }
