@@ -11,6 +11,7 @@ import {
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { CssColorLiteral, CssVariable, CssVariableManager } from "./cssVariableManager";
+import { Logger } from "./logger";
 
 export const COLOR_REPLACEMENT_DIAGNOSTIC_CODE = "replace-with-css-variable";
 
@@ -25,14 +26,13 @@ export interface CompletionDisplayOptions {
 
 export function collectColorReplacementDiagnostics(
   document: TextDocument,
-  cssVariableManager: CssVariableManager
+  cssVariableManager: CssVariableManager,
+  logger: Logger
 ): Diagnostic[] {
   try {
     return cssVariableManager
       .getDocumentColorLiterals(document.uri)
       .flatMap((literal) => {
-        // Skip color literals that are part of variable definitions (--var: color)
-        // We only want to show diagnostics on usages, not definitions
         if (literal.variableName) {
           return [];
         }
@@ -63,7 +63,7 @@ export function collectColorReplacementDiagnostics(
         ];
       });
   } catch (error) {
-    console.error("Error collecting color diagnostics:", error);
+    logger.error(`Error collecting color diagnostics: ${error}`);
     return [];
   }
 }
@@ -71,7 +71,8 @@ export function getColorReplacementCompletionItems(
   document: TextDocument,
   position: Position,
   cssVariableManager: CssVariableManager,
-  displayOptions: CompletionDisplayOptions
+  displayOptions: CompletionDisplayOptions,
+  logger: Logger
 ): CompletionItem[] {
   try {
     const literal = findColorLiteralAtPosition(document, position, cssVariableManager);
@@ -83,13 +84,14 @@ export function getColorReplacementCompletionItems(
       createColorReplacementCompletionItem(document, literal.range, match, displayOptions)
     );
   } catch (error) {
-    console.error("Error getting color replacement completions:", error);
+    logger.error(`Error getting color replacement completions: ${error}`);
     return [];
   }
 }
 export function getColorReplacementCodeActions(
   document: TextDocument,
-  diagnostics: Diagnostic[]
+  diagnostics: Diagnostic[],
+  logger: Logger
 ): CodeAction[] {
   try {
     const actions: CodeAction[] = [];
@@ -100,7 +102,12 @@ export function getColorReplacementCodeActions(
       }
 
       const data = diagnostic.data as ColorReplacementDiagnosticData | undefined;
-      const variableNames = data?.variableNames || [];
+      if (!isValidDiagnosticData(data)) {
+        logger.error(`Invalid diagnostic data for code action: ${JSON.stringify(diagnostic.data)}`);
+        continue;
+      }
+
+      const variableNames = data.variableNames;
 
       for (const variableName of variableNames) {
         actions.push({
@@ -120,7 +127,7 @@ export function getColorReplacementCodeActions(
 
     return actions;
   } catch (error) {
-    console.error("Error getting color replacement code actions:", error);
+    logger.error(`Error getting color replacement code actions: ${error}`);
     return [];
   }
 }
@@ -130,16 +137,53 @@ function findColorLiteralAtPosition(
   cssVariableManager: CssVariableManager
 ): CssColorLiteral | null {
   const offset = document.offsetAt(position);
+  const targetLine = position.line;
 
-  for (const literal of cssVariableManager.getDocumentColorLiterals(document.uri)) {
+  const lineLiterals = cssVariableManager.getDocumentColorLiteralsByLine(
+    document.uri,
+    targetLine
+  );
+
+  for (const literal of lineLiterals) {
     const start = document.offsetAt(literal.range.start);
     const end = document.offsetAt(literal.range.end);
+    if (!isRangeValid(literal.range) || start > end) {
+      continue;
+    }
     if (offset >= start && offset <= end) {
       return literal;
     }
   }
 
   return null;
+}
+
+function isValidDiagnosticData(data: unknown): data is ColorReplacementDiagnosticData {
+  if (typeof data !== "object" || data === null) {
+    return false;
+  }
+  const obj = data as Record<string, unknown>;
+  return (
+    obj.kind === COLOR_REPLACEMENT_DIAGNOSTIC_CODE &&
+    Array.isArray(obj.variableNames) &&
+    obj.variableNames.every((v) => typeof v === "string")
+  );
+}
+
+function isRangeValid(range: Range): boolean {
+  if (range.start.line < 0 || range.start.character < 0) {
+    return false;
+  }
+  if (range.end.line < 0 || range.end.character < 0) {
+    return false;
+  }
+  if (range.start.line > range.end.line) {
+    return false;
+  }
+  if (range.start.line === range.end.line && range.start.character > range.end.character) {
+    return false;
+  }
+  return true;
 }
 
 function getMatchingVariables(

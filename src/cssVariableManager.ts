@@ -10,6 +10,7 @@ import { Color } from "vscode-languageserver/node";
 import { getNormalizedColorKey, parseColor } from "./colorService";
 import { calculateSpecificity, compareSpecificity } from "./specificity";
 import * as path from "path";
+import { Logger } from "./logger";
 
 export interface CssVariable {
   name: string;
@@ -40,11 +41,6 @@ export interface CssColorLiteral {
   color: Color;
   propertyName: string;
   variableName?: string;
-}
-
-export interface Logger {
-  log(message: string): void;
-  error(message: string): void;
 }
 
 const DEFAULT_LOOKUP_FILES = [
@@ -126,7 +122,7 @@ function normalizeUri(uri: string): string {
 export class CssVariableManager {
   private variables: Map<string, CssVariable[]> = new Map();
   private usages: Map<string, CssVariableUsage[]> = new Map();
-  private colorLiterals: Map<string, CssColorLiteral[]> = new Map();
+  private colorLiterals: Map<string, Map<number, CssColorLiteral[]>> = new Map();
   private domTrees: Map<string, DOMTree> = new Map(); // URI -> DOM tree
   private colorIndex: Map<string, Set<string>> = new Map(); // color key -> variable names
   private colorIndexDirty: boolean = true;
@@ -135,19 +131,8 @@ export class CssVariableManager {
   private ignoreGlobs: string[];
   private lookupExtensions: Map<string, string>;
 
-  constructor(logger?: Logger, lookupFiles?: string[], ignoreGlobs?: string[]) {
-    this.logger = logger || {
-      log: (message: string) => {
-        // Only log to console in debug mode
-        if (process.env.CSS_LSP_DEBUG) {
-          console.log(message);
-        }
-      },
-      error: (message: string) => {
-        // Always log errors
-        console.error(message);
-      },
-    };
+  constructor(logger: Logger, lookupFiles?: string[], ignoreGlobs?: string[]) {
+    this.logger = logger;
     const normalizedLookupFiles = normalizeGlobList(lookupFiles);
     const normalizedIgnoreGlobs = normalizeGlobList(ignoreGlobs);
 
@@ -246,9 +231,7 @@ export class CssVariableManager {
         absolute: true,
       });
 
-      this.logger.log(
-        `[css-lsp] Scanned ${folder}: found ${files.length} files`
-      );
+      this.logger.debug("scanFolder", { folder, fileCount: files.length });
       allFiles.push(...files);
     }
 
@@ -268,9 +251,7 @@ export class CssVariableManager {
 
         this.parseContent(content, fileUri, languageId);
       } catch (error) {
-        this.logger.error(
-          `[css-lsp] Error scanning file ${filePath}: ${error}`
-        );
+        this.logger.error("scanFileError", { filePath, error: String(error) });
       }
 
       processedFiles++;
@@ -284,9 +265,7 @@ export class CssVariableManager {
       }
     }
 
-    this.logger.log(
-      `[css-lsp] Workspace scan complete. Processed ${totalFiles} files.`
-    );
+    this.logger.debug("workspaceScanComplete", { totalFiles });
   }
 
   public parseDocument(document: TextDocument): void {
@@ -308,7 +287,7 @@ export class CssVariableManager {
         const domTree = new DOMTree(text);
         this.domTrees.set(uri, domTree);
       } catch (error) {
-        this.logger.error(`Error parsing HTML for ${uri}: ${error}`);
+        this.logger.error("parseHtmlError", { uri, error: String(error) });
       }
 
       // Use node-html-parser to extract style blocks and inline styles
@@ -370,7 +349,7 @@ export class CssVariableManager {
           }
         }
       } catch (error) {
-        this.logger.error(`Error parsing HTML content for ${uri}: ${error}`);
+        this.logger.error("parseHtmlContentError", { uri, error: String(error) });
       }
     } else {
       // CSS, SCSS, SASS, LESS
@@ -389,9 +368,7 @@ export class CssVariableManager {
       const ast = csstree.parse(text, {
         positions: true,
         onParseError: (error) => {
-          this.logger.log(
-            `[css-lsp] CSS Parse Error in ${uri}: ${error.message}`
-          );
+          this.logger.debug("cssParseError", { uri, error: error.message });
         },
       });
 
@@ -562,7 +539,7 @@ export class CssVariableManager {
         },
       });
     } catch (e) {
-      this.logger.error(`Error parsing CSS in ${uri}: ${e}`);
+      this.logger.error("parseCssError", { uri, error: String(e) });
     }
   }
 
@@ -582,9 +559,7 @@ export class CssVariableManager {
         context: "declarationList",
         positions: true,
         onParseError: (error) => {
-          this.logger.log(
-            `[css-lsp] Inline Style Parse Error in ${uri}: ${error.message}`
-          );
+          this.logger.debug("inlineStyleParseError", { uri, error: error.message });
         },
       });
 
@@ -728,7 +703,7 @@ export class CssVariableManager {
         },
       });
     } catch (e) {
-      this.logger.error(`Error parsing inline style in ${uri}: ${e}`);
+      this.logger.error("parseInlineStyleError", { uri, error: String(e) });
     }
   }
 
@@ -739,7 +714,7 @@ export class CssVariableManager {
     text: string,
     offset: number
   ): void {
-    const literals = this.colorLiterals.get(normalizeUri(uri)) || [];
+    const lineMap = this.colorLiterals.get(normalizeUri(uri)) || new Map<number, CssColorLiteral[]>();
 
     this.collectColorLiteralsFromValue(
       declaration.value,
@@ -748,7 +723,7 @@ export class CssVariableManager {
       text,
       offset,
       declaration.property,
-      literals
+      lineMap
     );
 
     if (declaration.value.type === "Raw" && declaration.value.loc) {
@@ -764,16 +739,14 @@ export class CssVariableManager {
           declaration.value.value,
           offset + declaration.value.loc.start.offset,
           declaration.property,
-          literals
+          lineMap
         );
       } catch (error) {
-        this.logger.log(
-          `[css-lsp] Raw value parse error in ${uri}: ${String(error)}`
-        );
+        this.logger.debug("rawValueParseError", { uri, error: String(error) });
       }
     }
 
-    this.colorLiterals.set(normalizeUri(uri), literals);
+    this.colorLiterals.set(normalizeUri(uri), lineMap);
   }
 
   private collectColorLiteralsFromValue(
@@ -783,7 +756,7 @@ export class CssVariableManager {
     sourceText: string,
     baseOffset: number,
     propertyName: string,
-    literals: CssColorLiteral[]
+    lineMap: Map<number, CssColorLiteral[]>
   ): void {
     csstree.walk(valueNode, {
       enter: (node: csstree.CssNode) => {
@@ -822,12 +795,18 @@ export class CssVariableManager {
           baseOffset + node.loc.start.offset + leadingWhitespace;
         const endOffset = baseOffset + node.loc.end.offset - trailingWhitespace;
 
-        literals.push({
+        const range = Range.create(
+          document.positionAt(startOffset),
+          document.positionAt(endOffset)
+        );
+
+        const line = range.start.line;
+        if (!lineMap.has(line)) {
+          lineMap.set(line, []);
+        }
+        lineMap.get(line)!.push({
           uri,
-          range: Range.create(
-            document.positionAt(startOffset),
-            document.positionAt(endOffset)
-          ),
+          range,
           value,
           color,
           propertyName,
@@ -841,9 +820,7 @@ export class CssVariableManager {
     try {
       const filePath = URI.parse(uri).fsPath;
       if (!fs.existsSync(filePath)) {
-        this.logger.log(
-          `[css-lsp] File ${uri} does not exist on disk, removing from manager.`
-        );
+        this.logger.debug("fileNotFound", { uri });
         this.removeFile(uri);
         return;
       }
@@ -861,9 +838,9 @@ export class CssVariableManager {
       }
 
       this.parseContent(content, uri, languageId);
-      this.logger.log(`[css-lsp] Updated file ${uri} from disk.`);
+      this.logger.debug("fileUpdatedFromDisk", { uri });
     } catch (error) {
-      this.logger.error(`[css-lsp] Error updating file ${uri}: ${error}`);
+      this.logger.error("fileUpdateError", { uri, error: String(error) });
     }
   }
 
@@ -929,7 +906,13 @@ export class CssVariableManager {
   }
 
   public getDocumentColorLiterals(uri: string): CssColorLiteral[] {
-    return this.colorLiterals.get(normalizeUri(uri)) || [];
+    const lineMap = this.colorLiterals.get(normalizeUri(uri));
+    if (!lineMap) { return []; }
+    return Array.from(lineMap.values()).flat();
+  }
+
+  public getDocumentColorLiteralsByLine(uri: string, line: number): CssColorLiteral[] {
+    return this.colorLiterals.get(normalizeUri(uri))?.get(line) ?? [];
   }
 
   /**
