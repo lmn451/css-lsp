@@ -4,16 +4,7 @@ import { CssVariableManager } from "../src/cssVariableManager";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { CompletionItem } from "vscode-languageserver/node";
 import { getCssCompletionContext } from "../src/completionContext";
-import { Logger } from "../src/logger";
-
-class SilentLogger implements Logger {
-  debug(_label: string, _payload?: unknown): void {}
-  info(_label: string, _payload?: unknown): void {}
-  warn(_label: string, _payload?: unknown): void {}
-  error(_label: string, _payload?: unknown): void {}
-}
-
-const silentLogger = new SilentLogger();
+import { silentLogger } from "./helpers/silentLogger";
 
 function createDoc(uri: string, content: string, languageId: string = "css") {
   return TextDocument.create(uri, languageId, 1, content);

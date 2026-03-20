@@ -5,14 +5,7 @@ import * as os from "node:os";
 import * as path from "path";
 import { URI } from "vscode-uri";
 import { CssVariableManager } from "../src/cssVariableManager";
-import { Logger } from "../src/logger";
-
-class SilentLogger implements Logger {
-  debug(_label: string, _payload?: unknown) {}
-  info(_label: string, _payload?: unknown) {}
-  warn(_label: string, _payload?: unknown) {}
-  error(_label: string, _payload?: unknown) {}
-}
+import { SilentLogger } from "./helpers/silentLogger";
 
 function writeFile(filePath: string, content: string) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });

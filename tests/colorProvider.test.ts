@@ -2,20 +2,11 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { CssVariableManager } from "../src/cssVariableManager";
-import { Logger } from "../src/logger";
 import {
   collectColorPresentations,
   collectDocumentColors,
 } from "../src/colorProvider";
-
-class SilentLogger implements Logger {
-  debug(_label: string, _payload?: unknown) {}
-  info(_label: string, _payload?: unknown) {}
-  warn(_label: string, _payload?: unknown) {}
-  error(_label: string, _payload?: unknown) {}
-}
-
-const silentLogger = new SilentLogger();
+import { silentLogger } from "./helpers/silentLogger";
 
 function createDoc(uri: string, content: string, languageId: string = "css") {
   return TextDocument.create(uri, languageId, 1, content);

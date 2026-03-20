@@ -9,16 +9,7 @@ import {
 import { CssVariableManager } from "../src/cssVariableManager";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { Range } from "vscode-languageserver/node";
-import { Logger } from "../src/logger";
-
-class SilentLogger implements Logger {
-  debug(_label: string, _payload?: unknown): void {}
-  info(_label: string, _payload?: unknown): void {}
-  warn(_label: string, _payload?: unknown): void {}
-  error(_label: string, _payload?: unknown): void {}
-}
-
-const silentLogger = new SilentLogger();
+import { silentLogger } from "./helpers/silentLogger";
 
 test("color formatting", () => {
   const red = { red: 1, green: 0, blue: 0, alpha: 1 };

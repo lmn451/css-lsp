@@ -1,3 +1,4 @@
 out/
 out/**
+tsconfig.tsbuildinfo
 docs/

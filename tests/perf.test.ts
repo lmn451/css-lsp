@@ -8,16 +8,7 @@ import { TextDocument } from "vscode-languageserver-textdocument";
 import { URI } from "vscode-uri";
 import { CssVariableManager } from "../src/cssVariableManager";
 import { collectDocumentColors } from "../src/colorProvider";
-import { Logger } from "../src/logger";
-
-class SilentLogger implements Logger {
-  debug(_label: string, _payload?: unknown): void {}
-  info(_label: string, _payload?: unknown): void {}
-  warn(_label: string, _payload?: unknown): void {}
-  error(_label: string, _payload?: unknown): void {}
-}
-
-const silentLogger = new SilentLogger();
+import { silentLogger } from "./helpers/silentLogger";
 
 const shouldRun = process.env.CSS_LSP_PERF === "1";
 
