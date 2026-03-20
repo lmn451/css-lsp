@@ -37,6 +37,7 @@ import {
 import { buildInitializeResult } from "./initialize";
 import { formatUriForDisplay, toNormalizedFsPath } from "./pathDisplay";
 import { buildRuntimeConfig } from "./runtimeConfig";
+import { createLogger } from "./logger";
 import {
   calculateSpecificity,
   compareSpecificity,
@@ -50,13 +51,7 @@ const runtimeConfig = buildRuntimeConfig(process.argv.slice(2), process.env);
 // Also include all preview / proposed LSP features.
 const connection = createConnection(ProposedFeatures.all);
 
-function logDebug(label: string, payload: unknown) {
-  // Only log in debug mode (set CSS_LSP_DEBUG=1 environment variable)
-  if (process.env.CSS_LSP_DEBUG) {
-    const message = `[css-lsp] ${label} ${JSON.stringify(payload)}`;
-    connection.console.log(message);
-  }
-}
+const logger = createLogger();
 
 function updateWorkspaceFolderPaths(folders?: Array<{ uri: string }>): void {
   if (!folders) {
@@ -74,7 +69,7 @@ function updateWorkspaceFolderPaths(folders?: Array<{ uri: string }>): void {
 // Create a simple text document manager.
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 const cssVariableManager = new CssVariableManager(
-  connection.console,
+  logger,
   runtimeConfig.lookupFiles,
   runtimeConfig.ignoreGlobs,
 );
@@ -85,7 +80,7 @@ let workspaceFolderPaths: string[] = [];
 let rootFolderPath: string | null = null;
 
 connection.onInitialize((params: InitializeParams) => {
-  logDebug("initialize", {
+  logger.debug("initialize", {
     rootUri: params.rootUri,
     // rootPath is deprecated and optional in InitializeParams
     rootPath: params.rootPath,
@@ -123,7 +118,7 @@ connection.onInitialize((params: InitializeParams) => {
 connection.onInitialized(async () => {
   if (hasWorkspaceFolderCapability) {
     connection.workspace.onDidChangeWorkspaceFolders((_event) => {
-      connection.console.log("Workspace folder change event received.");
+      logger.debug("workspaceFolderChanged");
       void connection.workspace.getWorkspaceFolders().then((folders) => {
         updateWorkspaceFolderPaths(folders || undefined);
       });
@@ -134,27 +129,21 @@ connection.onInitialized(async () => {
   const workspaceFolders = await connection.workspace.getWorkspaceFolders();
   if (workspaceFolders) {
     updateWorkspaceFolderPaths(workspaceFolders || undefined);
-    connection.console.log("Scanning workspace for CSS variables...");
+    logger.info("scanStarted");
 
     const folderUris = workspaceFolders.map((f) => f.uri);
 
-    // Scan with progress callback that logs to console
     let lastLoggedPercentage = 0;
     await cssVariableManager.scanWorkspace(folderUris, (current, total) => {
       const percentage = Math.round((current / total) * 100);
-      // Log progress every 20% to avoid spam
       if (percentage - lastLoggedPercentage >= 20 || current === total) {
-        connection.console.log(
-          `Scanning CSS files: ${current}/${total} (${percentage}%)`,
-        );
+        logger.info("scanProgress", { current, total, percentage });
         lastLoggedPercentage = percentage;
       }
     });
 
     const totalVars = cssVariableManager.getAllVariables().length;
-    connection.console.log(
-      `Workspace scan complete. Found ${totalVars} CSS variables.`,
-    );
+    logger.info("scanComplete", { totalVars });
 
     // Validate all open documents after workspace scan
     documents.all().forEach(validateTextDocument);
@@ -163,7 +152,7 @@ connection.onInitialized(async () => {
 
 // Handle document close events
 documents.onDidClose(async (e) => {
-  connection.console.log(`[css-lsp] Document closed: ${e.document.uri}`);
+  logger.debug("documentClosed", { uri: e.document.uri });
   // When a document is closed, we need to revert to the file system version
   // instead of removing it completely (which would break workspace files).
   // This handles cases where the editor had unsaved changes.
@@ -267,7 +256,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
 
   if (runtimeConfig.enableColorReplacementDiagnostics) {
     diagnostics.push(
-      ...collectColorReplacementDiagnostics(textDocument, cssVariableManager),
+      ...collectColorReplacementDiagnostics(textDocument, cssVariableManager, logger),
     );
   }
 
@@ -276,9 +265,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
 }
 
 connection.onDidChangeWatchedFiles(async (change) => {
-  // Monitored files have changed in the client
-  connection.console.log("Received file change event");
-  logDebug("didChangeWatchedFiles", change);
+  logger.debug("didChangeWatchedFiles", { change });
 
   for (const fileEvent of change.changes) {
     if (fileEvent.type === FileChangeType.Deleted) {
@@ -513,6 +500,7 @@ connection.onCompletion(
             rootFolderPath,
           }),
       },
+      logger,
     );
   },
 );
@@ -795,7 +783,7 @@ connection.onCodeAction((params): CodeAction[] => {
     return [];
   }
 
-  return getColorReplacementCodeActions(document, params.context.diagnostics);
+  return getColorReplacementCodeActions(document, params.context.diagnostics, logger);
 });
 
 // Document symbols handler
