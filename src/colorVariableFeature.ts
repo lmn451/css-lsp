@@ -63,7 +63,7 @@ export function collectColorReplacementDiagnostics(
         ];
       });
   } catch (error) {
-    logger.error(`Error collecting color diagnostics: ${error}`);
+    logger.error("collectColorReplacementDiagnostics", { error });
     return [];
   }
 }
@@ -84,7 +84,7 @@ export function getColorReplacementCompletionItems(
       createColorReplacementCompletionItem(document, literal.range, match, displayOptions)
     );
   } catch (error) {
-    logger.error(`Error getting color replacement completions: ${error}`);
+    logger.error("getColorReplacementCompletionItems", { error });
     return [];
   }
 }
@@ -103,7 +103,7 @@ export function getColorReplacementCodeActions(
 
       const data = diagnostic.data as ColorReplacementDiagnosticData | undefined;
       if (!isValidDiagnosticData(data)) {
-        logger.error(`Invalid diagnostic data for code action: ${JSON.stringify(diagnostic.data)}`);
+        logger.error("getColorReplacementCodeActions", { diagnostic: diagnostic.data });
         continue;
       }
 
@@ -127,7 +127,7 @@ export function getColorReplacementCodeActions(
 
     return actions;
   } catch (error) {
-    logger.error(`Error getting color replacement code actions: ${error}`);
+    logger.error("getColorReplacementCodeActions", { error });
     return [];
   }
 }

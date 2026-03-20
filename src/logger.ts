@@ -33,7 +33,12 @@ export function createLogger(envVar = "CSS_LSP_DEBUG"): Logger {
       }
     },
     error: (label, payload) => {
-      console.error(formatMessage("error", label, payload));
+      if (payload instanceof Error && payload.stack) {
+        console.error(formatMessage("error", label, payload.message));
+        console.error(payload.stack);
+      } else {
+        console.error(formatMessage("error", label, payload));
+      }
     },
   };
 }
