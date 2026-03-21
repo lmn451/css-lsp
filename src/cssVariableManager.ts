@@ -427,12 +427,10 @@ export class CssVariableManager {
               // Capture valueRange from node.value location
               let valueRange: Range | undefined;
               if (node.value && node.value.loc) {
-                // Get the raw text from the value node
-                const valueStartOffset = offset + node.value.loc.start.offset;
-                const valueEndOffset = offset + node.value.loc.end.offset;
+                // Get the raw text from the value node (relative to CSS text)
                 const rawValueText = text.substring(
-                  valueStartOffset,
-                  valueEndOffset
+                  node.value.loc.start.offset,
+                  node.value.loc.end.offset
                 );
 
                 // Trim leading/trailing whitespace to get the actual value position
@@ -441,11 +439,12 @@ export class CssVariableManager {
                 const trailingWhitespace =
                   rawValueText.length - rawValueText.trimEnd().length;
 
+                // Calculate document positions (absolute position in document)
                 const valueStartPos = document.positionAt(
-                  valueStartOffset + leadingWhitespace
+                  offset + node.value.loc.start.offset + leadingWhitespace
                 );
                 const valueEndPos = document.positionAt(
-                  valueEndOffset - trailingWhitespace
+                  offset + node.value.loc.end.offset - trailingWhitespace
                 );
                 valueRange = Range.create(valueStartPos, valueEndPos);
               }
