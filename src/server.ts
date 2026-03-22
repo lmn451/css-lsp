@@ -47,9 +47,16 @@ import {
 
 const runtimeConfig = buildRuntimeConfig(process.argv.slice(2), process.env);
 
-// Create a connection for the server, using Node's IPC as a transport.
+// Create a connection for the server.
+// Use stdio transport when --stdio flag is passed (CLI usage).
+// Otherwise, let the library auto-detect transport from argv:
+// --node-ipc for IPC (VS Code extension),
+// --socket or --pipe for other transports.
 // Also include all preview / proposed LSP features.
-const connection = createConnection(ProposedFeatures.all);
+const useStdio = process.argv.includes('--stdio');
+const connection = useStdio
+  ? createConnection(ProposedFeatures.all, process.stdin, process.stdout)
+  : createConnection(ProposedFeatures.all);
 
 const logger = createLogger();
 
@@ -294,7 +301,11 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
 
   if (runtimeConfig.enableColorReplacementDiagnostics) {
     diagnostics.push(
-      ...collectColorReplacementDiagnostics(textDocument, cssVariableManager, logger),
+      ...collectColorReplacementDiagnostics(
+        textDocument,
+        cssVariableManager,
+        logger,
+      ),
     );
   }
 
@@ -821,7 +832,11 @@ connection.onCodeAction((params): CodeAction[] => {
     return [];
   }
 
-  return getColorReplacementCodeActions(document, params.context.diagnostics, logger);
+  return getColorReplacementCodeActions(
+    document,
+    params.context.diagnostics,
+    logger,
+  );
 });
 
 // Document symbols handler
