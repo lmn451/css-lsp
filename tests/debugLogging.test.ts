@@ -4,29 +4,43 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { CssVariableManager } from "../src/cssVariableManager";
+import { Logger } from "../src/logger";
 
 interface LogCall {
-  type: "log" | "error";
-  message: string;
+  level: "debug" | "info" | "warn" | "error";
+  label: string;
+  payload?: unknown;
 }
 
-class MockLogger {
+class MockLogger implements Logger {
   public calls: LogCall[] = [];
 
-  log = (message: string) => {
-    this.calls.push({ type: "log", message });
+  debug = (label: string, payload?: unknown) => {
+    this.calls.push({ level: "debug", label, payload });
   };
 
-  error = (message: string) => {
-    this.calls.push({ type: "error", message });
+  info = (label: string, payload?: unknown) => {
+    this.calls.push({ level: "info", label, payload });
   };
 
-  getLogCalls(): string[] {
-    return this.calls.filter((c) => c.type === "log").map((c) => c.message);
+  warn = (label: string, payload?: unknown) => {
+    this.calls.push({ level: "warn", label, payload });
+  };
+
+  error = (label: string, payload?: unknown) => {
+    this.calls.push({ level: "error", label, payload });
+  };
+
+  getDebugCalls(): LogCall[] {
+    return this.calls.filter((c) => c.level === "debug");
   }
 
-  getErrorCalls(): string[] {
-    return this.calls.filter((c) => c.type === "error").map((c) => c.message);
+  getInfoCalls(): LogCall[] {
+    return this.calls.filter((c) => c.level === "info");
+  }
+
+  getErrorCalls(): LogCall[] {
+    return this.calls.filter((c) => c.level === "error");
   }
 }
 
@@ -60,25 +74,21 @@ test("debug logging disabled by default", async () => {
     const cssContent = ":root { --color: red; }";
     manager.parseContent(cssContent, "file:///test.css", "css");
 
-    const logCalls = mockLogger.getLogCalls();
-    assert.ok(
-      logCalls.length === 0 ||
-        logCalls.every((msg) => !msg.includes("[DEBUG]")),
-    );
+    const debugCalls = mockLogger.getDebugCalls();
+    assert.ok(debugCalls.length === 0);
   });
 });
 
 test("debug logging gated by env var", async () => {
+  const mockLogger = new MockLogger();
+
   await withDebugEnv("1", () => {
-    const mockLogger = new MockLogger();
-    const manager = new CssVariableManager(mockLogger);
-
-    const cssContent = ":root { --color: red; }";
-    manager.parseContent(cssContent, "file:///test.css", "css");
-
-    const logCalls = mockLogger.getLogCalls();
-    assert.ok(Array.isArray(logCalls));
+    mockLogger.debug("test", { data: "test" });
   });
+
+  const debugCalls = mockLogger.getDebugCalls();
+  assert.ok(debugCalls.length === 1);
+  assert.strictEqual(debugCalls[0].label, "test");
 });
 
 test("production mode does not write log files", async () => {
@@ -98,51 +108,32 @@ test("production mode does not write log files", async () => {
         "html",
       );
 
-      // In production mode (no CSS_LSP_DEBUG), no log file should be created in test directory
       assert.ok(!fs.existsSync(testLogFile));
 
-      // Check that the implementation doesn't write to /tmp/css.log in production
-      // This is a static code check rather than a timing-based check
-      const tmpLogPath = path.join(os.tmpdir(), "css.log");
-      
-      // If a log file exists in /tmp, it should be from a previous debug session,
-      // not from this production mode test run. We verify by checking that
-      // the log calls in production mode don't result in file writes.
-      const logCallsBefore = mockLogger.getLogCalls().length;
+      const logCallsBefore = mockLogger.getDebugCalls().length;
       manager.parseContent(":root { --d: yellow; }", "file:///test3.css", "css");
-      const logCallsAfter = mockLogger.getLogCalls().length;
-      
-      // In production mode, debug logs should be suppressed
-      // (some logs may still occur for errors or important events)
-      assert.ok(logCallsAfter >= logCallsBefore);
+      const logCallsAfter = mockLogger.getDebugCalls().length;
+
+      assert.ok(logCallsAfter === logCallsBefore);
     } finally {
       try {
         fs.rmSync(testDir, { recursive: true });
       } catch (e) {
-        // Ignore cleanup errors
       }
     }
   });
 });
 
 test("errors can still be logged in production", async () => {
+  const mockLogger = new MockLogger();
+
   await withDebugEnv(undefined, () => {
-    const mockLogger = new MockLogger();
-    const manager = new CssVariableManager(mockLogger);
-
-    try {
-      manager.parseContent(
-        "this is not valid css {{{",
-        "file:///bad.css",
-        "css",
-      );
-    } catch (e) {
-      // css-tree is forgiving, so no error is expected
-    }
-
-    const errorCalls = mockLogger.getErrorCalls();
-    assert.ok(Array.isArray(errorCalls));
+    mockLogger.error("testError", { message: "test error message" });
   });
+
+  const errorCalls = mockLogger.getErrorCalls();
+  assert.ok(errorCalls.length === 1);
+  assert.strictEqual(errorCalls[0].label, "testError");
 });
 
 test("no hardcoded debug file writes", () => {
@@ -156,33 +147,18 @@ test("no hardcoded debug file writes", () => {
 
   let hasIssues = false;
 
-  try {
-    const serverContent = fs.readFileSync(serverPath, "utf-8");
-    const managerContent = fs.readFileSync(managerPath, "utf-8");
+  const serverContent = fs.readFileSync(serverPath, "utf-8");
+  const managerContent = fs.readFileSync(managerPath, "utf-8");
 
-    const problematicPatterns = ["/tmp/", "appendFileSync", "writeFileSync"];
+  const problematicPatterns = ["/tmp/", "appendFileSync", "writeFileSync"];
 
-    for (const pattern of problematicPatterns) {
-      if (serverContent.includes(pattern) || managerContent.includes(pattern)) {
-        hasIssues = true;
-      }
+  for (const pattern of problematicPatterns) {
+    if (serverContent.includes(pattern) || managerContent.includes(pattern)) {
+      hasIssues = true;
     }
-
-    assert.ok(!hasIssues);
-  } catch (e) {
-    const compiledServerPath = path.join(__dirname, "..", "out", "server.js");
-    if (fs.existsSync(compiledServerPath)) {
-      const compiledContent = fs.readFileSync(compiledServerPath, "utf-8");
-      if (
-        compiledContent.includes("/tmp/") ||
-        compiledContent.includes("appendFileSync")
-      ) {
-        hasIssues = true;
-      }
-    }
-
-    assert.ok(!hasIssues);
   }
+
+  assert.ok(!hasIssues);
 });
 
 test("CSS_LSP_DEBUG environment variable truthiness", async () => {

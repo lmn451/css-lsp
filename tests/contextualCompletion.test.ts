@@ -4,6 +4,7 @@ import { CssVariableManager } from "../src/cssVariableManager";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { CompletionItem } from "vscode-languageserver/node";
 import { getCssCompletionContext } from "../src/completionContext";
+import { silentLogger } from "./helpers/silentLogger";
 
 function createDoc(uri: string, content: string, languageId: string = "css") {
   return TextDocument.create(uri, languageId, 1, content);
@@ -41,7 +42,7 @@ function getCompletionsAt(
 }
 
 test("completion suggests variables inside var()", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(":root { --primary: red; --secondary: blue; }", "file:///vars.css", "css");
   
   const completions = getCompletionsAt(manager, ".btn { color: var(--|) }");
@@ -52,7 +53,7 @@ test("completion suggests variables inside var()", () => {
 });
 
 test("no completion after property colon without var()", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(":root { --bg-color: white; }", "file:///vars.css", "css");
   
   const completions = getCompletionsAt(manager, ".box { background: | }");
@@ -61,7 +62,7 @@ test("no completion after property colon without var()", () => {
 });
 
 test("completion works in multi-value properties", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(":root { --spacing: 10px; }", "file:///vars.css", "css");
   
   const completions = getCompletionsAt(manager, ".box { padding: 5px var(--|) }");
@@ -71,7 +72,7 @@ test("completion works in multi-value properties", () => {
 });
 
 test("no completion in property name position", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(":root { --color: red; }", "file:///vars.css", "css");
   
   const completions = getCompletionsAt(manager, ".selector { col| }");
@@ -80,7 +81,7 @@ test("no completion in property name position", () => {
 });
 
 test("no completion in selector position", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(":root { --color: red; }", "file:///vars.css", "css");
   
   const completions = getCompletionsAt(manager, ".my-class| { color: red; }");
@@ -89,7 +90,7 @@ test("no completion in selector position", () => {
 });
 
 test("completion works in HTML style attribute", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(":root { --text-color: black; }", "file:///vars.css", "css");
   
   const completions = getCompletionsAt(
@@ -103,7 +104,7 @@ test("completion works in HTML style attribute", () => {
 });
 
 test("completion works in HTML style block", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(":root { --text-color: black; }", "file:///vars.css", "css");
 
   const completions = getCompletionsAt(
@@ -117,7 +118,7 @@ test("completion works in HTML style block", () => {
 });
 
 test("no completion in HTML outside style context", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(":root { --color: red; }", "file:///vars.css", "css");
 
   const completions = getCompletionsAt(
@@ -130,7 +131,7 @@ test("no completion in HTML outside style context", () => {
 });
 
 test("completion works in non-CSS language when using var()", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(":root { --color: red; }", "file:///vars.css", "css");
 
   const completions = getCompletionsAt(
@@ -144,7 +145,7 @@ test("completion works in non-CSS language when using var()", () => {
 });
 
 test("no completion in non-CSS language without var()", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(":root { --color: red; }", "file:///vars.css", "css");
 
   const completions = getCompletionsAt(
@@ -157,7 +158,7 @@ test("no completion in non-CSS language without var()", () => {
 });
 
 test("no completion in selector pseudo-class", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(":root { --color: red; }", "file:///vars.css", "css");
 
   const completions = getCompletionsAt(
@@ -169,7 +170,7 @@ test("no completion in selector pseudo-class", () => {
 });
 
 test("completion works after semicolon in declaration block", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(":root { --primary: red; --secondary: blue; }", "file:///vars.css", "css");
   
   const completions = getCompletionsAt(
@@ -181,7 +182,7 @@ test("completion works after semicolon in declaration block", () => {
 });
 
 test("completion works in nested var() fallback", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(":root { --fallback: gray; }", "file:///vars.css", "css");
   
   const completions = getCompletionsAt(manager, ".box { color: var(--primary, var(--|)) }");
@@ -190,7 +191,7 @@ test("completion works in nested var() fallback", () => {
 });
 
 test("no completion in var() fallback value", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(":root { --fallback: gray; }", "file:///vars.css", "css");
 
   const completions = getCompletionsAt(
@@ -202,7 +203,7 @@ test("no completion in var() fallback value", () => {
 });
 
 test("completion works across multiple lines", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(":root { --margin: 20px; }", "file:///vars.css", "css");
   
   const content = `.container {
@@ -217,7 +218,7 @@ test("completion works across multiple lines", () => {
 });
 
 test("completion shows variable values in detail", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(":root { --theme-color: #ff5500; }", "file:///vars.css", "css");
   
   const completions = getCompletionsAt(manager, ".btn { color: var(--|) }");

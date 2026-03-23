@@ -2,14 +2,10 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import * as fs from "node:fs";
 import * as os from "node:os";
-import * as path from "node:path";
+import * as path from "path";
 import { URI } from "vscode-uri";
 import { CssVariableManager } from "../src/cssVariableManager";
-
-class SilentLogger {
-  log(_message: string) {}
-  error(_message: string) {}
-}
+import { SilentLogger } from "./helpers/silentLogger";
 
 function writeFile(filePath: string, content: string) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });

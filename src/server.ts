@@ -33,10 +33,12 @@ import {
   collectColorReplacementDiagnostics,
   getColorReplacementCodeActions,
   getColorReplacementCompletionItems,
+  isPositionOnDefinition,
 } from "./colorVariableFeature";
 import { buildInitializeResult } from "./initialize";
 import { formatUriForDisplay, toNormalizedFsPath } from "./pathDisplay";
 import { buildRuntimeConfig } from "./runtimeConfig";
+import { createLogger } from "./logger";
 import {
   calculateSpecificity,
   compareSpecificity,
@@ -46,17 +48,18 @@ import {
 
 const runtimeConfig = buildRuntimeConfig(process.argv.slice(2), process.env);
 
-// Create a connection for the server, using Node's IPC as a transport.
+// Create a connection for the server.
+// Use stdio transport when --stdio flag is passed (CLI usage).
+// Otherwise, let the library auto-detect transport from argv:
+// --node-ipc for IPC (VS Code extension),
+// --socket or --pipe for other transports.
 // Also include all preview / proposed LSP features.
-const connection = createConnection(ProposedFeatures.all);
+const useStdio = process.argv.includes('--stdio');
+const connection = useStdio
+  ? createConnection(ProposedFeatures.all, process.stdin, process.stdout)
+  : createConnection(ProposedFeatures.all);
 
-function logDebug(label: string, payload: unknown) {
-  // Only log in debug mode (set CSS_LSP_DEBUG=1 environment variable)
-  if (process.env.CSS_LSP_DEBUG) {
-    const message = `[css-lsp] ${label} ${JSON.stringify(payload)}`;
-    connection.console.log(message);
-  }
-}
+const logger = createLogger();
 
 function updateWorkspaceFolderPaths(folders?: Array<{ uri: string }>): void {
   if (!folders) {
@@ -74,7 +77,7 @@ function updateWorkspaceFolderPaths(folders?: Array<{ uri: string }>): void {
 // Create a simple text document manager.
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 const cssVariableManager = new CssVariableManager(
-  connection.console,
+  logger,
   runtimeConfig.lookupFiles,
   runtimeConfig.ignoreGlobs,
 );
@@ -85,10 +88,7 @@ let workspaceFolderPaths: string[] = [];
 let rootFolderPath: string | null = null;
 
 connection.onInitialize((params: InitializeParams) => {
-  logDebug("initialize", {
-    rootUri: params.rootUri,
-    // rootPath is deprecated and optional in InitializeParams
-    rootPath: params.rootPath,
+  logger.debug("initialize", {
     workspaceFolders: params.workspaceFolders,
     capabilities: params.capabilities,
   });
@@ -103,13 +103,17 @@ connection.onInitialize((params: InitializeParams) => {
     capabilities.textDocument.publishDiagnostics &&
     capabilities.textDocument.publishDiagnostics.relatedInformation
   );
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   if (params.rootUri) {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       rootFolderPath = path.normalize(URI.parse(params.rootUri).fsPath);
     } catch {
       rootFolderPath = null;
     }
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
   } else if (params.rootPath) {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     rootFolderPath = path.normalize(params.rootPath);
   }
   updateWorkspaceFolderPaths(params.workspaceFolders || undefined);
@@ -123,7 +127,7 @@ connection.onInitialize((params: InitializeParams) => {
 connection.onInitialized(async () => {
   if (hasWorkspaceFolderCapability) {
     connection.workspace.onDidChangeWorkspaceFolders((_event) => {
-      connection.console.log("Workspace folder change event received.");
+      logger.debug("workspaceFolderChanged");
       void connection.workspace.getWorkspaceFolders().then((folders) => {
         updateWorkspaceFolderPaths(folders || undefined);
       });
@@ -134,27 +138,21 @@ connection.onInitialized(async () => {
   const workspaceFolders = await connection.workspace.getWorkspaceFolders();
   if (workspaceFolders) {
     updateWorkspaceFolderPaths(workspaceFolders || undefined);
-    connection.console.log("Scanning workspace for CSS variables...");
+    logger.info("scanStarted");
 
     const folderUris = workspaceFolders.map((f) => f.uri);
 
-    // Scan with progress callback that logs to console
     let lastLoggedPercentage = 0;
     await cssVariableManager.scanWorkspace(folderUris, (current, total) => {
       const percentage = Math.round((current / total) * 100);
-      // Log progress every 20% to avoid spam
       if (percentage - lastLoggedPercentage >= 20 || current === total) {
-        connection.console.log(
-          `Scanning CSS files: ${current}/${total} (${percentage}%)`,
-        );
+        logger.info("scanProgress", { current, total, percentage });
         lastLoggedPercentage = percentage;
       }
     });
 
     const totalVars = cssVariableManager.getAllVariables().length;
-    connection.console.log(
-      `Workspace scan complete. Found ${totalVars} CSS variables.`,
-    );
+    logger.info("scanComplete", { totalVars });
 
     // Validate all open documents after workspace scan
     documents.all().forEach(validateTextDocument);
@@ -163,7 +161,15 @@ connection.onInitialized(async () => {
 
 // Handle document close events
 documents.onDidClose(async (e) => {
-  connection.console.log(`[css-lsp] Document closed: ${e.document.uri}`);
+  logger.debug("documentClosed", { uri: e.document.uri });
+
+  // Clear any pending validation timeout to prevent memory leak
+  const existingTimeout = validationTimeouts.get(e.document.uri);
+  if (existingTimeout) {
+    clearTimeout(existingTimeout);
+    validationTimeouts.delete(e.document.uri);
+  }
+
   // When a document is closed, we need to revert to the file system version
   // instead of removing it completely (which would break workspace files).
   // This handles cases where the editor had unsaved changes.
@@ -193,18 +199,48 @@ function scheduleValidation(textDocument: TextDocument): void {
   validationTimeouts.set(uri, timeout);
 }
 
-function scheduleValidateAllOpenDocuments(excludeUri?: string): void {
+function getAffectedDocuments(editedUri: string): Set<string> {
+  const affected = new Set<string>();
+
+  // Get variables defined in the edited file
+  const definedVars = cssVariableManager.getDocumentDefinitions(editedUri);
+
+  // Find all documents that use those variables
+  for (const def of definedVars) {
+    const usages = cssVariableManager.getVariableUsages(def.name);
+    for (const usage of usages) {
+      affected.add(usage.uri);
+    }
+  }
+
+  // Also include documents with color literals (might match new variables)
+  for (const doc of documents.all()) {
+    if (cssVariableManager.getDocumentColorLiterals(doc.uri).length > 0) {
+      affected.add(doc.uri);
+    }
+  }
+
+  return affected;
+}
+
+function scheduleValidateAllOpenDocuments(excludeUri: string): void {
   if (validateAllTimeout) {
     clearTimeout(validateAllTimeout);
   }
 
   validateAllTimeout = setTimeout(() => {
-    documents.all().forEach((document) => {
-      if (excludeUri && document.uri === excludeUri) {
-        return;
+    const affectedUris = getAffectedDocuments(excludeUri);
+
+    for (const uri of affectedUris) {
+      if (uri === excludeUri) {
+        continue;
       }
-      validateTextDocument(document);
-    });
+      const doc = documents.get(uri);
+      if (doc) {
+        validateTextDocument(doc);
+      }
+    }
+
     validateAllTimeout = null;
   }, 300);
 }
@@ -265,18 +301,22 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     }
   }
 
-  diagnostics.push(
-    ...collectColorReplacementDiagnostics(textDocument, cssVariableManager),
-  );
+  if (runtimeConfig.enableColorReplacementDiagnostics) {
+    diagnostics.push(
+      ...collectColorReplacementDiagnostics(
+        textDocument,
+        cssVariableManager,
+        logger,
+      ),
+    );
+  }
 
   // Send diagnostics to the client
   connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
 }
 
 connection.onDidChangeWatchedFiles(async (change) => {
-  // Monitored files have changed in the client
-  connection.console.log("Received file change event");
-  logDebug("didChangeWatchedFiles", change);
+  logger.debug("didChangeWatchedFiles", { change });
 
   for (const fileEvent of change.changes) {
     if (fileEvent.type === FileChangeType.Deleted) {
@@ -511,6 +551,7 @@ connection.onCompletion(
             rootFolderPath,
           }),
       },
+      logger,
     );
   },
 );
@@ -793,7 +834,17 @@ connection.onCodeAction((params): CodeAction[] => {
     return [];
   }
 
-  return getColorReplacementCodeActions(document, params.context.diagnostics);
+  // Skip replacement suggestions when cursor is on a CSS variable definition
+  const definitions = cssVariableManager.getDocumentDefinitions(document.uri);
+  if (isPositionOnDefinition(document, definitions, params.range.start)) {
+    return [];
+  }
+
+  return getColorReplacementCodeActions(
+    document,
+    params.context.diagnostics,
+    logger,
+  );
 });
 
 // Document symbols handler

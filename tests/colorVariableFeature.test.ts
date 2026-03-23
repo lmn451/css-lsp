@@ -7,14 +7,16 @@ import {
   collectColorReplacementDiagnostics,
   getColorReplacementCodeActions,
   getColorReplacementCompletionItems,
+  isPositionOnDefinition,
 } from "../src/colorVariableFeature";
+import { silentLogger } from "./helpers/silentLogger";
 
 function createDoc(uri: string, content: string, languageId: string = "css") {
   return TextDocument.create(uri, languageId, 1, content);
 }
 
 test("variables match by normalized color value", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(
     ":root { --white: #fff; --paper: rgb(255 255 255); --accent: #0d6efd; }",
     "file:///vars.css",
@@ -33,7 +35,7 @@ test("variables match by normalized color value", () => {
 });
 
 test("document color literals are collected from compound values and skip var()", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const doc = createDoc(
     "file:///test.css",
     ".card { background: linear-gradient(#fff, rgb(255 255 255), var(--paper)); box-shadow: 0 0 2px white; }"
@@ -49,7 +51,7 @@ test("document color literals are collected from compound values and skip var()"
 });
 
 test("diagnostics are informational and preserve multiple variable options", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(
     ":root { --white: #fff; --paper: rgb(255 255 255); }",
     "file:///vars.css",
@@ -58,32 +60,44 @@ test("diagnostics are informational and preserve multiple variable options", () 
   const doc = createDoc("file:///test.css", ".title { color: white; }");
 
   manager.parseDocument(doc);
-  const diagnostics = collectColorReplacementDiagnostics(doc, manager);
+  const diagnostics = collectColorReplacementDiagnostics(doc, manager, silentLogger);
 
   assert.strictEqual(diagnostics.length, 1);
   assert.strictEqual(diagnostics[0].severity, DiagnosticSeverity.Information);
-  assert.match(diagnostics[0].message, /2 matching CSS variables/);
+  assert.match(diagnostics[0].message, /matching CSS variables: '--paper', '--white'/);
 });
 
-test("diagnostics exclude self-references inside matching custom property definitions", () => {
-  const manager = new CssVariableManager();
+test("diagnostics are not shown on variable definitions", () => {
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(
-    ":root { --white: #fff; --paper: #fff; }",
+    ":root { --white: #fff; --paper: rgb(255 255 255); }",
     "file:///vars.css",
     "css"
   );
   const doc = createDoc("file:///test.css", ":root { --white: #fff; }");
 
   manager.parseDocument(doc);
-  const diagnostics = collectColorReplacementDiagnostics(doc, manager);
+  const diagnostics = collectColorReplacementDiagnostics(doc, manager, silentLogger);
+
+  // No diagnostics on definitions (only on usages)
+  assert.strictEqual(diagnostics.length, 0);
+});
+
+test("diagnostic message includes variable name when only one match", () => {
+  const manager = new CssVariableManager(silentLogger);
+  manager.parseContent(":root { --white: #fff; }", "file:///vars.css", "css");
+  const doc = createDoc("file:///test.css", ".title { color: white; }");
+
+  manager.parseDocument(doc);
+  const diagnostics = collectColorReplacementDiagnostics(doc, manager, silentLogger);
 
   assert.strictEqual(diagnostics.length, 1);
-  assert.match(diagnostics[0].message, /'--paper'/);
-  assert.doesNotMatch(diagnostics[0].message, /'--white'/);
+  assert.strictEqual(diagnostics[0].severity, DiagnosticSeverity.Information);
+  assert.match(diagnostics[0].message, /matching CSS variable '--white'/);
 });
 
 test("completion items replace the full literal color token", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(":root { --white: #fff; }", "file:///vars.css", "css");
 
   const source = ".title { color: white; }";
@@ -94,7 +108,8 @@ test("completion items replace the full literal color token", () => {
     doc,
     doc.positionAt(source.indexOf("white") + 2),
     manager,
-    { formatLocation: (uri) => uri }
+    { formatLocation: (uri) => uri },
+    silentLogger
   );
 
   assert.strictEqual(completions.length, 1);
@@ -109,7 +124,7 @@ test("completion items replace the full literal color token", () => {
 });
 
 test("code actions return one quick fix per matching variable", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   manager.parseContent(
     ":root { --white: #fff; --paper: rgb(255 255 255); }",
     "file:///vars.css",
@@ -119,8 +134,8 @@ test("code actions return one quick fix per matching variable", () => {
   const doc = createDoc("file:///test.css", source);
 
   manager.parseDocument(doc);
-  const diagnostics = collectColorReplacementDiagnostics(doc, manager);
-  const actions = getColorReplacementCodeActions(doc, diagnostics);
+  const diagnostics = collectColorReplacementDiagnostics(doc, manager, silentLogger);
+  const actions = getColorReplacementCodeActions(doc, diagnostics, silentLogger);
 
   assert.strictEqual(actions.length, 2);
   assert.deepEqual(
@@ -130,7 +145,7 @@ test("code actions return one quick fix per matching variable", () => {
 });
 
 test("literal detection works in html and less documents", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const htmlDoc = createDoc(
     "file:///test.html",
     '<div style="color: white; background: linear-gradient(#fff, red)"></div>',
@@ -147,4 +162,44 @@ test("literal detection works in html and less documents", () => {
 
   assert.ok(manager.getDocumentColorLiterals(htmlDoc.uri).length >= 2);
   assert.strictEqual(manager.getDocumentColorLiterals(lessDoc.uri).length, 2);
+});
+
+test("isPositionOnDefinition returns true when cursor is on definition", () => {
+  const manager = new CssVariableManager(silentLogger);
+  manager.parseContent(":root { --white: #fff; }", "file:///vars.css", "css");
+  
+  const doc = createDoc("file:///test.css", ":root { --white: #fff; }");
+  manager.parseDocument(doc);
+  
+  const definitions = manager.getDocumentDefinitions(doc.uri);
+  
+  // Position at start of --white (after ":root { ")
+  const pos = doc.positionAt(8);
+  assert.strictEqual(isPositionOnDefinition(doc, definitions, pos), true);
+});
+
+test("isPositionOnDefinition returns false when cursor is not on definition", () => {
+  const manager = new CssVariableManager(silentLogger);
+  manager.parseContent(":root { --white: #fff; }", "file:///vars.css", "css");
+  
+  const doc = createDoc("file:///test.css", ".title { color: white; }");
+  manager.parseDocument(doc);
+  
+  const definitions = manager.getDocumentDefinitions(doc.uri);
+  
+  // Position at "white" in color: white
+  const pos = doc.positionAt(16);
+  assert.strictEqual(isPositionOnDefinition(doc, definitions, pos), false);
+});
+
+test("isPositionOnDefinition returns false for empty definitions", () => {
+  const manager = new CssVariableManager(silentLogger);
+  const doc = createDoc("file:///test.css", ".title { color: white; }");
+  manager.parseDocument(doc);
+  
+  const definitions = manager.getDocumentDefinitions(doc.uri);
+  assert.strictEqual(definitions.length, 0);
+  
+  const pos = doc.positionAt(5);
+  assert.strictEqual(isPositionOnDefinition(doc, definitions, pos), false);
 });

@@ -6,13 +6,14 @@ import {
   collectColorPresentations,
   collectDocumentColors,
 } from "../src/colorProvider";
+import { silentLogger } from "./helpers/silentLogger";
 
 function createDoc(uri: string, content: string, languageId: string = "css") {
   return TextDocument.create(uri, languageId, 1, content);
 }
 
 test("collectDocumentColors returns empty when disabled", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const uri = "file:///colors.css";
   const css = ":root { --primary: #ff0000; }";
   const doc = createDoc(uri, css);
@@ -27,7 +28,7 @@ test("collectDocumentColors returns empty when disabled", () => {
 });
 
 test("collectDocumentColors respects onlyVariables flag", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const uri = "file:///colors-usage.css";
   const css = `
 :root { --primary: #ff0000; }
@@ -65,7 +66,7 @@ test("collectColorPresentations honors enabled flag", () => {
 });
 
 test("collectDocumentColors resolves named color variables", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const uri = "file:///colors-named.css";
   const css = `
 :root { --primary: red; }

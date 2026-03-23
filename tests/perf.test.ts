@@ -8,6 +8,7 @@ import { TextDocument } from "vscode-languageserver-textdocument";
 import { URI } from "vscode-uri";
 import { CssVariableManager } from "../src/cssVariableManager";
 import { collectDocumentColors } from "../src/colorProvider";
+import { silentLogger } from "./helpers/silentLogger";
 
 const shouldRun = process.env.CSS_LSP_PERF === "1";
 
@@ -138,7 +139,7 @@ if (!shouldRun) {
     try {
       writeFixtureFiles(tempDir, cssFileCount, varsPerFile, htmlFileCount);
 
-      const manager = new CssVariableManager();
+      const manager = new CssVariableManager(silentLogger);
       const scanStart = performance.now();
       await manager.scanWorkspace([URI.file(tempDir).toString()]);
       const scanDuration = performance.now() - scanStart;

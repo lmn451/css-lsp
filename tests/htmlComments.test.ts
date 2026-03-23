@@ -2,13 +2,14 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { CssVariableManager } from "../src/cssVariableManager";
 import { TextDocument } from "vscode-languageserver-textdocument";
+import { silentLogger } from "./helpers/silentLogger";
 
 function createDoc(uri: string, content: string, languageId: string = "css") {
   return TextDocument.create(uri, languageId, 1, content);
 }
 
 test("HTML comments with style blocks are ignored", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const html = `
 <!DOCTYPE html>
 <html>
@@ -44,7 +45,7 @@ test("HTML comments with style blocks are ignored", () => {
 });
 
 test("HTML comments with inline styles are ignored", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const html = `
 <!DOCTYPE html>
 <html>
@@ -69,7 +70,7 @@ test("HTML comments with inline styles are ignored", () => {
 });
 
 test("multi-line HTML comments are ignored", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const html = `
 <!DOCTYPE html>
 <html>
@@ -103,7 +104,7 @@ test("multi-line HTML comments are ignored", () => {
 });
 
 test("CSS comments within style blocks still work", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const html = `
 <!DOCTYPE html>
 <html>
@@ -129,7 +130,7 @@ test("CSS comments within style blocks still work", () => {
 });
 
 test("nested HTML comments are ignored", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const html = `
 <!DOCTYPE html>
 <html>
@@ -162,7 +163,7 @@ test("nested HTML comments are ignored", () => {
 });
 
 test("position tracking works after comment removal", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const html = `
 <!DOCTYPE html>
 <html>
