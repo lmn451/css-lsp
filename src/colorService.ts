@@ -171,39 +171,83 @@ function parseHex(hex: string): Color | null {
 }
 
 function parseRgb(value: string): Color | null {
-  const match = value.match(
-    /rgba?\(([\d\s\.]+),?\s*([\d\s\.]+),?\s*([\d\s\.]+)(?:,?\s*\/?,?\s*([\d\s\.]+))?\)/,
-  );
-  if (!match) return null;
+  const start = value.indexOf("(");
+  const end = value.lastIndexOf(")");
+  if (start === -1 || end === -1 || end <= start) {
+    return null;
+  }
 
-  const r = parseFloat(match[1]) / 255;
-  const g = parseFloat(match[2]) / 255;
-  const b = parseFloat(match[3]) / 255;
-  let a = 1;
+  const inner = value.slice(start + 1, end).trim();
+  const [rgbPart, alphaPart] = splitAlphaPart(inner);
+  const parts = rgbPart.split(/[\s,]+/).filter(Boolean);
+  if (parts.length !== 3 && parts.length !== 4) {
+    return null;
+  }
 
-  if (match[4]) {
-    a = parseFloat(match[4]);
+  const r = parseFloat(parts[0]) / 255;
+  const g = parseFloat(parts[1]) / 255;
+  const b = parseFloat(parts[2]) / 255;
+  const a = alphaPart
+    ? parseAlpha(alphaPart)
+    : parts.length === 4
+      ? parseAlpha(parts[3])
+      : 1;
+
+  if ([r, g, b, a].some((component) => Number.isNaN(component))) {
+    return null;
   }
 
   return { red: r, green: g, blue: b, alpha: a };
 }
 
 function parseHsl(value: string): Color | null {
-  const match = value.match(
-    /hsla?\(([\d\s\.]+)(?:deg)?,?\s*([\d\s\.]+)%?,?\s*([\d\s\.]+)%?(?:,?\s*\/?,?\s*([\d\s\.]+))?\)/,
-  );
-  if (!match) return null;
+  const start = value.indexOf("(");
+  const end = value.lastIndexOf(")");
+  if (start === -1 || end === -1 || end <= start) {
+    return null;
+  }
 
-  const h = parseFloat(match[1]) / 360;
-  const s = parseFloat(match[2]) / 100;
-  const l = parseFloat(match[3]) / 100;
-  let a = 1;
+  const inner = value.slice(start + 1, end).trim();
+  const [hslPart, alphaPart] = splitAlphaPart(inner);
+  const parts = hslPart.split(/[\s,]+/).filter(Boolean);
+  if (parts.length !== 3 && parts.length !== 4) {
+    return null;
+  }
 
-  if (match[4]) {
-    a = parseFloat(match[4]);
+  const h = parseFloat(parts[0]) / 360;
+  const s = parseFloat(parts[1]) / 100;
+  const l = parseFloat(parts[2]) / 100;
+  const a = alphaPart
+    ? parseAlpha(alphaPart)
+    : parts.length === 4
+      ? parseAlpha(parts[3])
+      : 1;
+
+  if ([h, s, l, a].some((component) => Number.isNaN(component))) {
+    return null;
   }
 
   return hslToRgb(h, s, l, a);
+}
+
+function splitAlphaPart(value: string): [string, string | null] {
+  const slashIndex = value.indexOf("/");
+  if (slashIndex === -1) {
+    return [value.trim(), null];
+  }
+
+  return [
+    value.slice(0, slashIndex).trim(),
+    value.slice(slashIndex + 1).trim(),
+  ];
+}
+
+function parseAlpha(value: string): number {
+  if (value.endsWith("%")) {
+    return parseFloat(value) / 100;
+  }
+
+  return parseFloat(value);
 }
 
 function hslToRgb(h: number, s: number, l: number, a: number): Color {
@@ -229,6 +273,14 @@ function hslToRgb(h: number, s: number, l: number, a: number): Color {
   }
 
   return { red: r, green: g, blue: b, alpha: a };
+}
+
+export function getNormalizedColorKey(color: Color): string {
+  return formatColorAsHex(color).toLowerCase();
+}
+
+export function colorsEqual(a: Color, b: Color): boolean {
+  return getNormalizedColorKey(a) === getNormalizedColorKey(b);
 }
 
 function parseNamedColor(name: string): Color | null {

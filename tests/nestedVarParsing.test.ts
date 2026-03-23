@@ -2,13 +2,14 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { CssVariableManager } from "../src/cssVariableManager";
 import { TextDocument } from "vscode-languageserver-textdocument";
+import { silentLogger } from "./helpers/silentLogger";
 
 function createDoc(uri: string, content: string, languageId: string = "css") {
   return TextDocument.create(uri, languageId, 1, content);
 }
 
 test("css-tree parses nested var() in fallback as Raw node", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   // Define both variables
   const css = `
@@ -38,7 +39,7 @@ test("css-tree parses nested var() in fallback as Raw node", () => {
 });
 
 test("multiple levels of nesting also parsed as Raw", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   const css = `
     :root { 
@@ -60,7 +61,7 @@ test("multiple levels of nesting also parsed as Raw", () => {
 });
 
 test("separate var() calls are all tracked", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   const css = `
     :root { 
@@ -81,7 +82,7 @@ test("separate var() calls are all tracked", () => {
 });
 
 test("var() in multiple properties tracks all usages", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   const css = `
     :root { --color: red; }
@@ -98,7 +99,7 @@ test("var() in multiple properties tracks all usages", () => {
 });
 
 test("fallback with static value doesn't create false usage", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   const css = `
     :root { --primary: red; }
@@ -118,7 +119,7 @@ test("fallback with static value doesn't create false usage", () => {
 });
 
 test("understanding css-tree's Raw node behavior", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   // This documents WHY nested var() isn't tracked:
   // css-tree parses var() arguments like this:
@@ -147,7 +148,7 @@ test("understanding css-tree's Raw node behavior", () => {
 });
 
 test("references (definitions + usages) only includes tracked items", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   const css = `
     :root { --primary: red; --fallback: blue; }
@@ -167,7 +168,7 @@ test("references (definitions + usages) only includes tracked items", () => {
 });
 
 test("rename doesn't affect untracked nested var() usages", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   const css = `
     :root { --primary: red; --fallback: blue; }

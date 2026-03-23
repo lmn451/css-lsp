@@ -26,3 +26,9 @@ test("initialize result keeps incremental sync", () => {
 
   assert.equal(result.capabilities.textDocumentSync, TextDocumentSyncKind.Incremental);
 });
+
+test("initialize result enables code actions", () => {
+  const result = buildInitializeResult(true, false);
+
+  assert.equal(result.capabilities.codeActionProvider, true);
+});

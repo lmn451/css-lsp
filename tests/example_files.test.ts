@@ -3,13 +3,14 @@ import { strict as assert } from "node:assert";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { CssVariableManager } from "../src/cssVariableManager";
 import { collectDocumentColors } from "../src/colorProvider";
+import { silentLogger } from "./helpers/silentLogger";
 
 function createDoc(uri: string, content: string, languageId: string) {
   return TextDocument.create(uri, languageId, 1, content);
 }
 
 test("collectDocumentColors finds colors in example .vue file", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const uri = "file:///Users/applesucks/dev/css-lsp/example/index.vue";
   const vueContent = `<template>
   <div class="container" style="color: var(--vue-color); background: var(--vue-bg);">
@@ -54,7 +55,7 @@ test("collectDocumentColors finds colors in example .vue file", () => {
 });
 
 test("collectDocumentColors finds colors in example .css file", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const uri = "file:///Users/applesucks/dev/css-lsp/example/index.css";
   const cssContent = `:root {
   --primary: #ff0000;

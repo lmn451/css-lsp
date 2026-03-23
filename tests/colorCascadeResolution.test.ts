@@ -2,13 +2,14 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { CssVariableManager } from "../src/cssVariableManager";
 import { TextDocument } from "vscode-languageserver-textdocument";
+import { silentLogger } from "./helpers/silentLogger";
 
 function createDoc(uri: string, content: string, languageId: string = "css") {
   return TextDocument.create(uri, languageId, 1, content);
 }
 
 test("color resolution respects !important flag", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = `
     :root { --color: #ff0000; }
     div { --color: #0000ff !important; }
@@ -25,7 +26,7 @@ test("color resolution respects !important flag", () => {
 });
 
 test("color resolution uses specificity when no !important", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = `
     :root { --color: #ff0000; }
     div { --color: #00ff00; }
@@ -42,7 +43,7 @@ test("color resolution uses specificity when no !important", () => {
 });
 
 test("color resolution uses source order for equal specificity", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = `
     :root { --color: #ff0000; }
     :root { --color: #0000ff; }
@@ -58,7 +59,7 @@ test("color resolution uses source order for equal specificity", () => {
 });
 
 test("color resolution handles variable references", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = `
     :root {
       --primary: #ff0000;
@@ -75,7 +76,7 @@ test("color resolution handles variable references", () => {
 });
 
 test("color resolution detects circular references", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = `
     :root {
       --a: var(--b);
@@ -89,7 +90,7 @@ test("color resolution detects circular references", () => {
 });
 
 test("color resolution handles multi-level variable chains", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = `
     :root {
       --base: #00ff00;
@@ -108,7 +109,7 @@ test("color resolution handles multi-level variable chains", () => {
 });
 
 test("color resolution combines cascade rules correctly", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = `
     :root { --color: #ff0000; }
     div { --color: #00ff00; }
@@ -127,7 +128,7 @@ test("color resolution combines cascade rules correctly", () => {
 });
 
 test("color resolution works across multiple files", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   manager.parseContent(
     ":root { --primary: #ff0000; }",
@@ -151,7 +152,7 @@ test("color resolution works across multiple files", () => {
 });
 
 test("color resolution with rgba values", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = `
     :root {
       --transparent-red: rgba(255, 0, 0, 0.5);
@@ -168,7 +169,7 @@ test("color resolution with rgba values", () => {
 });
 
 test("color resolution with hsl values", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = `
     :root {
       --hsl-color: hsl(120, 100%, 50%);
@@ -185,7 +186,7 @@ test("color resolution with hsl values", () => {
 });
 
 test("color resolution returns null for non-color values", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = `
     :root {
       --spacing: 10px;
@@ -205,7 +206,7 @@ test("color resolution returns null for non-color values", () => {
 });
 
 test("color resolution with !important overrides higher specificity", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = `
     #high-specificity { --color: #ff0000; }
     div { --color: #0000ff !important; }

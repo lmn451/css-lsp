@@ -155,16 +155,59 @@ export function matchesContext(
     return true;
   }
 
-  // For now, we use a simplified approach:
-  // If the usage context contains the definition selector, it might apply
-  // This handles cases like "div" applying to "div.class"
-  const defParts = definitionSelector.split(/[\s>+~]/);
-  const usageParts = usageContext.split(/[\s>+~]/);
+  // For compound selectors like "div.class", check if the base selectors match
+  const defParts = definitionSelector.split(/[\s>+~]/).filter((p) => p.trim());
+  const usageParts = usageContext.split(/[\s>+~]/).filter((p) => p.trim());
 
-  // Check if any part of the definition is in the usage
-  return defParts.some((defPart) =>
-    usageParts.some(
-      (usagePart) => usagePart.includes(defPart) || defPart.includes(usagePart),
-    ),
-  );
+  // Each part of the definition must have a corresponding matching part in usage
+  // For compound selectors like "div.button", both "div" AND ".button" must match
+  for (const defPart of defParts) {
+    const hasMatch = usageParts.some((usagePart) => selectorPartMatches(defPart, usagePart));
+    if (!hasMatch) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Check if a single selector part matches another selector part.
+ * Handles element selectors, class selectors, ID selectors, and attribute selectors.
+ * Returns true only if both parts are the same selector type and name.
+ */
+function selectorPartMatches(def: string, usage: string): boolean {
+  // Determine selector types (before any normalization)
+  const isDefClass = def.startsWith(".");
+  const isDefId = def.startsWith("#");
+  const isDefAttr = def.startsWith("[");
+  const isDefElement = !isDefClass && !isDefId && !isDefAttr;
+
+  const isUsageClass = usage.startsWith(".");
+  const isUsageId = usage.startsWith("#");
+  const isUsageAttr = usage.startsWith("[");
+  const isUsageElement = !isUsageClass && !isUsageId && !isUsageAttr;
+
+  // Element selectors should only match element selectors
+  if (isDefElement && isUsageElement) {
+    return def === usage;
+  }
+
+  // Class selectors should only match class selectors
+  if (isDefClass && isUsageClass) {
+    return def === usage;
+  }
+
+  // ID selectors should only match ID selectors
+  if (isDefId && isUsageId) {
+    return def === usage;
+  }
+
+  // Attribute selectors should only match attribute selectors
+  if (isDefAttr && isUsageAttr) {
+    return def === usage;
+  }
+
+  // Cross-type matching is not allowed
+  return false;
 }

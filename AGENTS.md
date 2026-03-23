@@ -1,139 +1,87 @@
-## Issue Tracking with bd (beads)
+# CSS Variable LSP - Project Knowledge
 
-**IMPORTANT**: This project uses **bd (beads)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other tracking methods.
+**Generated:** 2026-03-23
+**Commit:** 5277576
+**Branch:** chore/update-deps
 
-### Why bd?
+## Overview
 
-- Dependency-aware: Track blockers and relationships between issues
-- Git-friendly: Auto-syncs to JSONL for version control
-- Agent-optimized: JSON output, ready work detection, discovered-from links
-- Prevents duplicate tracking systems and confusion
+CSS Language Server for CSS custom properties. Indexes variables across workspace, provides completions, hover, diagnostics, go-to-definition, rename, and color support.
 
-### Quick Start
+**Stack:** TypeScript + vscode-languageserver + css-tree + node-html-parser
 
-**Check for ready work:**
+## Structure
+
+```
+css-lsp/
+├── src/                       # 13 source files
+│   ├── server.ts             # LSP entry + all handlers
+│   ├── cssVariableManager.ts # Core: variable index, cascade resolution
+│   ├── colorProvider.ts      # Color decorations/picker
+│   ├── colorService.ts       # Color parsing/formatting
+│   ├── colorVariableFeature.ts # Color replacement suggestions
+│   ├── completionContext.ts   # Property-aware completions
+│   ├── specificity.ts       # CSS cascade ordering
+│   ├── domTree.ts           # HTML DOM for selector matching
+│   ├── flags.ts             # CLI flag definitions
+│   ├── initialize.ts        # LSP capability builder
+│   ├── logger.ts            # Structured logging
+│   ├── pathDisplay.ts       # Path formatting (relative/absolute)
+│   └── runtimeConfig.ts      # Runtime config builder
+├── tests/                    # 27 test files (*.test.ts)
+├── out/                      # Compiled output
+├── docs/                     # Example files
+└── package.json              # bin: css-variable-lsp
+```
+
+## Where to Look
+
+| Task | Location | Notes |
+|------|----------|-------|
+| LSP protocol handlers | `src/server.ts` | 900+ lines, all onXxx handlers |
+| Variable parsing/indexing | `src/cssVariableManager.ts` | Core state manager |
+| Color features | `src/colorService.ts`, `colorProvider.ts`, `colorVariableFeature.ts` | 3-file domain |
+| Cascade/hover logic | `src/server.ts:611-635` | Sort by !important > specificity > source order |
+| CLI/config | `src/flags.ts` | Declarative flag registry |
+| Tests | `tests/*.test.ts` | Node.js native test runner |
+
+## CODE MAP
+
+| Symbol | Type | Location | Role |
+|--------|------|----------|------|
+| `connection` | const | server.ts:58 | LSP connection instance |
+| `CssVariableManager` | class | cssVariableManager.ts:122 | Central state + parsing |
+| `onCompletion` | handler | server.ts:489 | Var completions + color suggestions |
+| `onHover` | handler | server.ts:564 | Cascade-aware hover |
+| `resolveVariableColor` | method | cssVariableManager.ts:975 | Recursive color resolution |
+| `calculateSpecificity` | function | specificity.ts:25 | CSS cascade ordering |
+| `parseColor` | function | colorService.ts:11 | Hex/rgb/hsl/named parsing |
+
+## Conventions
+
+- **Strict TypeScript** — `strict: true` in tsconfig
+- **Named exports only** — No default exports
+- **Structured logging** — Logger interface with `debug/info/warn/error`
+- **Error handling** — Log via `logger.error()`, never throw in production
+- **Tests** — Node.js native `node:test`, `strict as assert` from `node:assert`
+
+## Anti-Patterns (This Project)
+
+- **No forbidden comments** — Project relies on TypeScript strict mode
+- **No ESLint** — Empty `.prettierrc` uses defaults only
+- **Flat src/ structure** — All 13 files at root level
+
+## Commands
 
 ```bash
-bd ready --json
+npm run compile   # tsc -b → out/
+npm test          # All 27 test files
+npm run perf      # Performance tests (CSS_LSP_PERF=1)
 ```
 
-**Create new issues:**
+## Notes
 
-```bash
-bd create "Issue title" -t bug|feature|task -p 0-4 --json
-bd create "Issue title" -p 1 --deps discovered-from:bd-123 --json
-```
-
-**Claim and update:**
-
-```bash
-bd update bd-42 --status in_progress --json
-bd update bd-42 --priority 1 --json
-```
-
-**Complete work:**
-
-```bash
-bd close bd-42 --reason "Completed" --json
-```
-
-### Issue Types
-
-- `bug` - Something broken
-- `feature` - New functionality
-- `task` - Work item (tests, docs, refactoring)
-- `epic` - Large feature with subtasks
-- `chore` - Maintenance (dependencies, tooling)
-
-### Priorities
-
-- `0` - Critical (security, data loss, broken builds)
-- `1` - High (major features, important bugs)
-- `2` - Medium (default, nice-to-have)
-- `3` - Low (polish, optimization)
-- `4` - Backlog (future ideas)
-
-### Workflow for AI Agents
-
-1. **Check ready work**: `bd ready` shows unblocked issues
-2. **Claim your task**: `bd update <id> --status in_progress`
-3. **Work on it**: Implement, test, document
-4. **Discover new work?** Create linked issue:
-   - `bd create "Found bug" -p 1 --deps discovered-from:<parent-id>`
-5. **Complete**: `bd close <id> --reason "Done"`
-6. **Commit together**: Always commit the `.beads/issues.jsonl` file together with the code changes so issue state stays in sync with code state
-
-### Auto-Sync
-
-bd automatically syncs with git:
-
-- Exports to `.beads/issues.jsonl` after changes (5s debounce)
-- Imports from JSONL when newer (e.g., after `git pull`)
-- No manual export/import needed!
-
-### MCP Server (Recommended)
-
-If using Claude or MCP-compatible clients, install the beads MCP server:
-
-```bash
-pip install beads-mcp
-```
-
-Add to MCP config (e.g., `~/.config/claude/config.json`):
-
-```json
-{
-  "beads": {
-    "command": "beads-mcp",
-    "args": []
-  }
-}
-```
-
-Then use `mcp__beads__*` functions instead of CLI commands.
-
-### Managing AI-Generated Planning Documents
-
-AI assistants often create planning and design documents during development:
-
-- PLAN.md, IMPLEMENTATION.md, ARCHITECTURE.md
-- DESIGN.md, CODEBASE_SUMMARY.md, INTEGRATION_PLAN.md
-- TESTING_GUIDE.md, TECHNICAL_DESIGN.md, and similar files
-
-**Best Practice: Use a dedicated directory for these ephemeral files**
-
-**Recommended approach:**
-
-- Create a `history/` directory in the project root
-- Store ALL AI-generated planning/design docs in `history/`
-- Keep the repository root clean and focused on permanent project files
-- Only access `history/` when explicitly asked to review past planning
-
-**Example .gitignore entry (optional):**
-
-```
-# AI planning documents (ephemeral)
-history/
-```
-
-**Benefits:**
-
-- ✅ Clean repository root
-- ✅ Clear separation between ephemeral and permanent documentation
-- ✅ Easy to exclude from version control if desired
-- ✅ Preserves planning history for archeological research
-- ✅ Reduces noise when browsing the project
-
-### Important Rules
-
-- ✅ Use bd for ALL task tracking
-- ✅ Always use `--json` flag for programmatic use
-- ✅ Link discovered work with `discovered-from` dependencies
-- ✅ Check `bd ready` before asking "what should I work on?"
-- ✅ Store AI planning docs in `history/` directory
-- ❌ Do NOT create markdown TODO lists
-- ❌ Do NOT use external issue trackers
-- ❌ Do NOT duplicate tracking systems
-- ❌ Do NOT clutter repo root with planning documents
-
-For more details, see README.md and QUICKSTART.md.
+- `server.ts` is monolithic (900+ lines) — contains ALL LSP handlers
+- Color index (`colorIndexDirty` flag) provides O(1) color lookups
+- Cascade resolution: !important > inline > specificity > source order
+- `cssVariableManager.ts` is the brain — imported by all feature modules

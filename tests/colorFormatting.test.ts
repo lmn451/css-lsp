@@ -9,6 +9,7 @@ import {
 import { CssVariableManager } from "../src/cssVariableManager";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { Range } from "vscode-languageserver/node";
+import { silentLogger } from "./helpers/silentLogger";
 
 test("color formatting", () => {
   const red = { red: 1, green: 0, blue: 0, alpha: 1 };
@@ -39,7 +40,7 @@ test("parseColor ignores named colors by default", () => {
 });
 
 test("value range calculation", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = `
 		:root {
 			--simple: red;
@@ -75,3 +76,45 @@ test("value range calculation", () => {
   }
   assert.strictEqual(getText(complex.valueRange), "rgb(0,0,0)");
 });
+
+
+test("value range calculation in HTML style blocks", () => {
+  const manager = new CssVariableManager(silentLogger);
+  const html = `<html>
+<style>
+  :root {
+    --simple: red;
+    --spaced:   blue  ;
+    --complex: rgb(0,0,0);
+  }
+</style>
+</html>`;
+  const document = TextDocument.create("file:///test.html", "html", 1, html);
+  manager.parseDocument(document);
+
+  const simple = manager.getVariables("--simple")[0];
+  const spaced = manager.getVariables("--spaced")[0];
+  const complex = manager.getVariables("--complex")[0];
+
+  const getText = (range: Range) => {
+    const start = document.offsetAt(range.start);
+    const end = document.offsetAt(range.end);
+    return html.substring(start, end);
+  };
+
+  if (!simple.valueRange) {
+    throw new Error("Expected valueRange for --simple");
+  }
+  assert.strictEqual(getText(simple.valueRange).trim(), "red");
+
+  if (!spaced.valueRange) {
+    throw new Error("Expected valueRange for --spaced");
+  }
+  assert.strictEqual(getText(spaced.valueRange).trim(), "blue");
+
+  if (!complex.valueRange) {
+    throw new Error("Expected valueRange for --complex");
+  }
+  assert.strictEqual(getText(complex.valueRange).trim(), "rgb(0,0,0)");
+});
+

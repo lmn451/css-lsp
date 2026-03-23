@@ -12,7 +12,7 @@ export function buildInitializeResult(
       textDocumentSync: TextDocumentSyncKind.Incremental,
       completionProvider: {
         resolveProvider: true,
-        triggerCharacters: ["-"],
+        triggerCharacters: ["-", "#", "("],
       },
       definitionProvider: true,
       hoverProvider: true,
@@ -21,6 +21,7 @@ export function buildInitializeResult(
       documentSymbolProvider: true,
       workspaceSymbolProvider: true,
       colorProvider: enableColorProvider,
+      codeActionProvider: true,
     },
   };
 

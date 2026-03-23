@@ -3,6 +3,7 @@ import { strict as assert } from "node:assert";
 import { CssVariableManager } from "../src/cssVariableManager";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { TextEdit, WorkspaceEdit } from "vscode-languageserver/node";
+import { silentLogger } from "./helpers/silentLogger";
 
 function createDoc(uri: string, content: string, languageId: string = "css") {
   return TextDocument.create(uri, languageId, 1, content);
@@ -38,7 +39,7 @@ function getRenameEdits(
 }
 
 test("rename variable across multiple files", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   // Define in one file
   manager.parseContent(":root { --old-name: red; }", "file:///vars.css", "css");
@@ -72,7 +73,7 @@ test("rename variable across multiple files", () => {
 });
 
 test("rename variable with multiple definitions", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   manager.parseContent(`
     :root { --color: red; }
@@ -90,7 +91,7 @@ test("rename variable with multiple definitions", () => {
 });
 
 test("rename preserves !important flag", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   manager.parseContent(":root { --urgent: red !important; }", "file:///test.css", "css");
   
@@ -103,7 +104,7 @@ test("rename preserves !important flag", () => {
 });
 
 test("rename in HTML inline styles", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   manager.parseContent(":root { --inline-color: blue; }", "file:///vars.css", "css");
   manager.parseContent(
@@ -124,7 +125,7 @@ test("rename in HTML inline styles", () => {
 });
 
 test("rename in HTML style blocks", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   const html = `
     <html>
@@ -148,7 +149,7 @@ test("rename in HTML style blocks", () => {
 });
 
 test("rename with no usages only renames definitions", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   manager.parseContent(":root { --unused: red; }", "file:///test.css", "css");
   
@@ -161,7 +162,7 @@ test("rename with no usages only renames definitions", () => {
 });
 
 test("rename with only usages and no definitions", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   // Only usage, no definition
   manager.parseContent(".btn { color: var(--external); }", "file:///test.css", "css");
@@ -175,7 +176,7 @@ test("rename with only usages and no definitions", () => {
 });
 
 test("rename across CSS and HTML files", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   // CSS definition
   manager.parseContent(":root { --shared: purple; }", "file:///global.css", "css");
@@ -201,7 +202,7 @@ test("rename across CSS and HTML files", () => {
 });
 
 test("rename in SCSS files", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   manager.parseContent(":root { --scss-var: teal; }", "file:///vars.scss", "scss");
   manager.parseContent(".btn { color: var(--scss-var); }", "file:///styles.scss", "scss");
@@ -212,7 +213,7 @@ test("rename in SCSS files", () => {
 });
 
 test("rename same variable defined in multiple selectors", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   const css = `
     :root { --theme: light; }
@@ -232,7 +233,7 @@ test("rename same variable defined in multiple selectors", () => {
 });
 
 test("rename updates references map correctly", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   manager.parseContent(":root { --ref: blue; }", "file:///test.css", "css");
   manager.parseContent(".btn { color: var(--ref); }", "file:///usage.css", "css");
@@ -248,7 +249,7 @@ test("rename updates references map correctly", () => {
 });
 
 test("rename with nested var() fallback", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   const css = `
     :root { --primary: red; --fallback: blue; }
@@ -268,7 +269,7 @@ test("rename with nested var() fallback", () => {
 });
 
 test("rename empty workspace returns empty edits", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   const edits = getRenameEdits(manager, "--nonexistent", "--new-name");
   

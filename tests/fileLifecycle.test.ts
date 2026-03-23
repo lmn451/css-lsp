@@ -2,13 +2,14 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { CssVariableManager } from "../src/cssVariableManager";
 import { TextDocument } from "vscode-languageserver-textdocument";
+import { silentLogger } from "./helpers/silentLogger";
 
 function createDoc(uri: string, content: string, languageId: string = "css") {
   return TextDocument.create(uri, languageId, 1, content);
 }
 
 test("file open -> close -> reopen cycle", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const uri = "file:///lifecycle1.css";
   const css = ":root { --lifecycle-var: green; }";
   const doc = createDoc(uri, css);
@@ -29,7 +30,7 @@ test("file open -> close -> reopen cycle", () => {
 });
 
 test("no duplicates when workspace file is opened", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const uri = "file:///workspace.css";
   const css = ":root { --workspace-var: purple; }";
 
@@ -44,7 +45,7 @@ test("no duplicates when workspace file is opened", () => {
 });
 
 test("removeFile clears variables, usages, and DOM trees", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const uri = "file:///complete.html";
   const html = `
 <html>
@@ -83,7 +84,7 @@ test("removeFile clears variables, usages, and DOM trees", () => {
 });
 
 test("multiple parses without duplicates", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const uri = "file:///rapid.css";
   const css1 = ":root { --rapid-var: v1; }";
   const css2 = ":root { --rapid-var: v2; }";
@@ -106,7 +107,7 @@ test("multiple parses without duplicates", () => {
 });
 
 test("removeFile on non-existent file is safe", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const uri = "file:///never-opened.css";
   manager.removeFile(uri);
   const vars = manager.getAllVariables();
@@ -114,7 +115,7 @@ test("removeFile on non-existent file is safe", () => {
 });
 
 test("multiple variable definitions and usages cleared", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const uri = "file:///multi.css";
   const css = `
 		:root {

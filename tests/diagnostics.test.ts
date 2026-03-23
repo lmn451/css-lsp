@@ -4,6 +4,7 @@ import { CssVariableManager } from "../src/cssVariableManager";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { Diagnostic, DiagnosticSeverity } from "vscode-languageserver/node";
 import { UndefinedVarFallbackMode } from "../src/runtimeConfig";
+import { silentLogger } from "./helpers/silentLogger";
 
 function createDoc(uri: string, content: string, languageId: string = "css") {
   return TextDocument.create(uri, languageId, 1, content);
@@ -61,7 +62,7 @@ function getDiagnostics(
 }
 
 test("diagnostics for undefined variable", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = ".btn { color: var(--undefined-color); }";
   const doc = createDoc("file:///test.css", css);
   
@@ -75,7 +76,7 @@ test("diagnostics for undefined variable", () => {
 });
 
 test("no diagnostics for defined variable", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = `
     :root { --primary: red; }
     .btn { color: var(--primary); }
@@ -89,7 +90,7 @@ test("no diagnostics for defined variable", () => {
 });
 
 test("diagnostics for multiple undefined variables", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = `
     .btn {
       color: var(--undefined-1);
@@ -109,7 +110,7 @@ test("diagnostics for multiple undefined variables", () => {
 });
 
 test("diagnostics warn on fallback by default", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = ".btn { color: var(--undefined, red); }";
   const doc = createDoc("file:///test.css", css);
   
@@ -121,7 +122,7 @@ test("diagnostics warn on fallback by default", () => {
 });
 
 test("diagnostics downgrade to info for fallback when configured", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = ".btn { color: var(--undefined, red); }";
   const doc = createDoc("file:///test.css", css);
 
@@ -135,7 +136,7 @@ test("diagnostics downgrade to info for fallback when configured", () => {
 });
 
 test("diagnostics omit fallback warnings when configured", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = ".btn { color: var(--undefined, red); }";
   const doc = createDoc("file:///test.css", css);
 
@@ -148,7 +149,7 @@ test("diagnostics omit fallback warnings when configured", () => {
 });
 
 test("diagnostics work across files", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   // Define variable in one file
   manager.parseContent(":root { --theme-color: blue; }", "file:///vars.css", "css");
@@ -163,7 +164,7 @@ test("diagnostics work across files", () => {
 });
 
 test("diagnostics detect usage of removed variables", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   // Initially define and use a variable
   manager.parseContent(":root { --color: red; }", "file:///vars.css", "css");
@@ -185,7 +186,7 @@ test("diagnostics detect usage of removed variables", () => {
 });
 
 test("diagnostics in HTML inline styles", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const html = '<div style="color: var(--undefined-inline);"></div>';
   const doc = createDoc("file:///test.html", html, "html");
   
@@ -197,7 +198,7 @@ test("diagnostics in HTML inline styles", () => {
 });
 
 test("diagnostics in HTML style blocks", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const html = `
     <html>
       <head>
@@ -217,7 +218,7 @@ test("diagnostics in HTML style blocks", () => {
 });
 
 test("no diagnostics for variable definitions", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = ":root { --my-var: red; }";
   const doc = createDoc("file:///test.css", css);
   
@@ -228,7 +229,7 @@ test("no diagnostics for variable definitions", () => {
 });
 
 test("diagnostics range covers entire var() expression", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = ".btn { color: var(--undefined); }";
   const doc = createDoc("file:///test.css", css);
   
@@ -246,7 +247,7 @@ test("diagnostics range covers entire var() expression", () => {
 });
 
 test("diagnostics handle nested var() expressions", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const css = ".btn { color: var(--undefined-1, var(--undefined-2)); }";
   const doc = createDoc("file:///test.css", css);
   
@@ -261,7 +262,7 @@ test("diagnostics handle nested var() expressions", () => {
 });
 
 test("diagnostics in SCSS files", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   const scss = `
     $sass-var: 10px; // SCSS variable, ignored
     .btn {
@@ -278,7 +279,7 @@ test("diagnostics in SCSS files", () => {
 });
 
 test("diagnostics work after file updates", () => {
-  const manager = new CssVariableManager();
+  const manager = new CssVariableManager(silentLogger);
   
   // Initial: no variable defined
   let css = ".btn { color: var(--dynamic); }";
