@@ -7,6 +7,7 @@ import {
   collectColorReplacementDiagnostics,
   getColorReplacementCodeActions,
   getColorReplacementCompletionItems,
+  isPositionOnDefinition,
 } from "../src/colorVariableFeature";
 import { silentLogger } from "./helpers/silentLogger";
 
@@ -161,4 +162,44 @@ test("literal detection works in html and less documents", () => {
 
   assert.ok(manager.getDocumentColorLiterals(htmlDoc.uri).length >= 2);
   assert.strictEqual(manager.getDocumentColorLiterals(lessDoc.uri).length, 2);
+});
+
+test("isPositionOnDefinition returns true when cursor is on definition", () => {
+  const manager = new CssVariableManager(silentLogger);
+  manager.parseContent(":root { --white: #fff; }", "file:///vars.css", "css");
+  
+  const doc = createDoc("file:///test.css", ":root { --white: #fff; }");
+  manager.parseDocument(doc);
+  
+  const definitions = manager.getDocumentDefinitions(doc.uri);
+  
+  // Position at start of --white (after ":root { ")
+  const pos = doc.positionAt(8);
+  assert.strictEqual(isPositionOnDefinition(doc, definitions, pos), true);
+});
+
+test("isPositionOnDefinition returns false when cursor is not on definition", () => {
+  const manager = new CssVariableManager(silentLogger);
+  manager.parseContent(":root { --white: #fff; }", "file:///vars.css", "css");
+  
+  const doc = createDoc("file:///test.css", ".title { color: white; }");
+  manager.parseDocument(doc);
+  
+  const definitions = manager.getDocumentDefinitions(doc.uri);
+  
+  // Position at "white" in color: white
+  const pos = doc.positionAt(16);
+  assert.strictEqual(isPositionOnDefinition(doc, definitions, pos), false);
+});
+
+test("isPositionOnDefinition returns false for empty definitions", () => {
+  const manager = new CssVariableManager(silentLogger);
+  const doc = createDoc("file:///test.css", ".title { color: white; }");
+  manager.parseDocument(doc);
+  
+  const definitions = manager.getDocumentDefinitions(doc.uri);
+  assert.strictEqual(definitions.length, 0);
+  
+  const pos = doc.positionAt(5);
+  assert.strictEqual(isPositionOnDefinition(doc, definitions, pos), false);
 });

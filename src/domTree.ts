@@ -17,10 +17,8 @@ export interface DOMNodeInfo {
 
 export class DOMTree {
   private root: ParsedHTMLElement;
-  private htmlText: string;
 
   constructor(htmlText: string) {
-    this.htmlText = htmlText;
     this.root = parse(htmlText, {
       lowerCaseTagName: true,
       comment: false,

@@ -196,7 +196,7 @@ function getMatchingVariables(
 }
 
 function createColorReplacementCompletionItem(
-  document: TextDocument,
+  _document: TextDocument,
   range: Range,
   match: CssVariable,
   displayOptions: CompletionDisplayOptions
@@ -210,4 +210,18 @@ function createColorReplacementCompletionItem(
     filterText: `var(${match.name})`,
     sortText: match.name,
   };
+}
+
+// Check if cursor position is on a CSS variable definition
+export function isPositionOnDefinition(
+  document: TextDocument,
+  definitions: CssVariable[],
+  position: Position,
+): boolean {
+  const cursorOffset = document.offsetAt(position);
+  return definitions.some((def) => {
+    const start = document.offsetAt(def.range.start);
+    const end = document.offsetAt(def.range.end);
+    return cursorOffset >= start && cursorOffset <= end;
+  });
 }

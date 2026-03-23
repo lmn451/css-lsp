@@ -217,14 +217,6 @@ function parsePathDisplay(flag: PathDisplayFlagDef, argv: string[], env: NodeJS.
   return { mode, combinedLength };
 }
 
-function parseInt(flag: IntFlagDef, argv: string[], env: NodeJS.ProcessEnv): number {
-  const argValue = getArgValue(argv, flag.flag.replace("--", ""));
-  const envValue = env[flag.envKey];
-  const raw = argValue ?? envValue ?? null;
-  const parsed = parseOptionalInt(raw);
-  return parsed ?? flag.default;
-}
-
 function parseList(flag: ListFlagDef, argv: string[], env: NodeJS.ProcessEnv): string[] | undefined {
   const cliValues: string[] = [];
   for (let i = 0; i < argv.length; i++) {

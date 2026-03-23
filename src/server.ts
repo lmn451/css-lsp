@@ -33,6 +33,7 @@ import {
   collectColorReplacementDiagnostics,
   getColorReplacementCodeActions,
   getColorReplacementCompletionItems,
+  isPositionOnDefinition,
 } from "./colorVariableFeature";
 import { buildInitializeResult } from "./initialize";
 import { formatUriForDisplay, toNormalizedFsPath } from "./pathDisplay";
@@ -88,9 +89,6 @@ let rootFolderPath: string | null = null;
 
 connection.onInitialize((params: InitializeParams) => {
   logger.debug("initialize", {
-    rootUri: params.rootUri,
-    // rootPath is deprecated and optional in InitializeParams
-    rootPath: params.rootPath,
     workspaceFolders: params.workspaceFolders,
     capabilities: params.capabilities,
   });
@@ -105,13 +103,17 @@ connection.onInitialize((params: InitializeParams) => {
     capabilities.textDocument.publishDiagnostics &&
     capabilities.textDocument.publishDiagnostics.relatedInformation
   );
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   if (params.rootUri) {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       rootFolderPath = path.normalize(URI.parse(params.rootUri).fsPath);
     } catch {
       rootFolderPath = null;
     }
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
   } else if (params.rootPath) {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     rootFolderPath = path.normalize(params.rootPath);
   }
   updateWorkspaceFolderPaths(params.workspaceFolders || undefined);
@@ -829,6 +831,12 @@ connection.onRenameRequest((params) => {
 connection.onCodeAction((params): CodeAction[] => {
   const document = documents.get(params.textDocument.uri);
   if (!document) {
+    return [];
+  }
+
+  // Skip replacement suggestions when cursor is on a CSS variable definition
+  const definitions = cssVariableManager.getDocumentDefinitions(document.uri);
+  if (isPositionOnDefinition(document, definitions, params.range.start)) {
     return [];
   }
 
