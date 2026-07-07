@@ -226,3 +226,68 @@ test("completion shows variable values in detail", () => {
   assert.ok(themeColor);
   assert.strictEqual(themeColor.detail, "#ff5500");
 });
+
+function buildLongCardRule(): string {
+  const decl = "  margin-top: 1px;\n";
+  let rule = ".card {\n";
+  for (let i = 0; i < 30; i++) {
+    rule += decl;
+  }
+  rule += "  font: 400 16px/1.5 system-ui, sans-serif;\n";
+  rule += "  color: var(--|)";
+  return rule;
+}
+
+test("issue #16: completion works at bottom of long CSS rule block", () => {
+  const manager = new CssVariableManager();
+  manager.parseContent(
+    ":root { --size-1: 4px; --size-10: 40px; --color-bg: white; }",
+    "file:///design.css",
+    "css",
+  );
+
+  const content = buildLongCardRule();
+  assert.ok(content.length > 500, "fixture must exceed the old 400-char window");
+
+  const completions = getCompletionsAt(manager, content);
+
+  assert.ok(
+    completions.length > 0,
+    "var(-- at the bottom of a long rule must still offer workspace variables",
+  );
+  assert.ok(completions.some((c) => c.label === "--size-1"));
+  assert.ok(completions.some((c) => c.label === "--color-bg"));
+});
+
+test("issue #16: long CSS rule resolves property name for context", () => {
+  const content = buildLongCardRule();
+  const cursorPos = content.indexOf("|");
+  const contentWithoutMarker =
+    content.slice(0, cursorPos) + content.slice(cursorPos + 1);
+  const doc = createDoc("file:///styles.css", contentWithoutMarker, "css");
+  const position = doc.positionAt(cursorPos);
+
+  const context = getCssCompletionContext(doc, position);
+
+  assert.ok(context, "expected completion context in long rule block");
+  assert.strictEqual(context.propertyName, "color");
+});
+
+test("issue #16: completion works at bottom of long HTML style block", () => {
+  const manager = new CssVariableManager();
+  manager.parseContent(":root { --size-3: 12px; }", "file:///design.css", "css");
+
+  const decl = "  margin-top: 1px;\n";
+  let css = ".card {\n";
+  for (let i = 0; i < 30; i++) {
+    css += decl;
+  }
+  css += "  font: 400 16px/1.5 system-ui, sans-serif;\n";
+  css += "  padding: var(--|)";
+  const content = `<style>${css}</style>`;
+
+  const completions = getCompletionsAt(manager, content, "html");
+
+  assert.ok(completions.length > 0);
+  assert.ok(completions.some((c) => c.label === "--size-3"));
+});

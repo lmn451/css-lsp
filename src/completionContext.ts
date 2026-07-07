@@ -55,7 +55,7 @@ function getRawCompletionContext(
 
   if (CSS_LANGUAGE_IDS.has(languageId)) {
     return {
-      beforeCursor: sliceBeforeCursor(text, offset),
+      beforeCursor: sliceCssBeforeCursor(text, offset),
       allowWithoutBraces: false,
     };
   }
@@ -97,6 +97,30 @@ function getRawCompletionContext(
 
 function isVarFunctionContext(beforeCursor: string): boolean {
   return /(?:^|[^\w-])var\(\s*(?:--[\w-]*)?$/i.test(beforeCursor);
+}
+
+function findContainingBlockStart(text: string, offset: number): number {
+  const boundedOffset = Math.min(offset, text.length);
+  let braceDepth = 0;
+
+  for (let i = boundedOffset - 1; i >= 0; i--) {
+    const char = text[i];
+    if (char === "}") {
+      braceDepth++;
+    } else if (char === "{") {
+      if (braceDepth === 0) {
+        return i;
+      }
+      braceDepth--;
+    }
+  }
+
+  return Math.max(0, offset - CONTEXT_WINDOW);
+}
+
+function sliceCssBeforeCursor(text: string, offset: number): string {
+  const start = findContainingBlockStart(text, offset);
+  return text.slice(start, offset);
 }
 
 function sliceBeforeCursor(text: string, offset: number): string {
@@ -147,7 +171,11 @@ function extractStyleBlockContext(text: string, offset: number): string | null {
   }
 
   const cssBeforeCursor = beforeCursor.slice(tagEnd + 1);
-  return trimContext(cssBeforeCursor);
+  const blockStart = findContainingBlockStart(
+    cssBeforeCursor,
+    cssBeforeCursor.length,
+  );
+  return cssBeforeCursor.slice(blockStart);
 }
 
 function extractJsStringContext(beforeCursor: string): string | null {
@@ -260,7 +288,9 @@ function getPropertyNameFromContext(
     if (char === ")") inParens++;
     else if (char === "(") {
       inParens--;
-      if (inParens < 0) break;
+      if (inParens < 0) {
+        inParens = 0;
+      }
     } else if (char === "}") inBraces++;
     else if (char === "{") {
       inBraces--;
