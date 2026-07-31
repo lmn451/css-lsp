@@ -77,6 +77,25 @@ let hasWorkspaceFolderCapability = false;
 let hasDiagnosticRelatedInformationCapability = false;
 let workspaceFolderPaths: string[] = [];
 let rootFolderPath: string | null = null;
+let rootFolderUri: string | null = null;
+
+async function workspaceFolderUrisForScan(): Promise<string[]> {
+  if (hasWorkspaceFolderCapability) {
+    try {
+      const folders = await connection.workspace.getWorkspaceFolders();
+      if (folders?.length) {
+        updateWorkspaceFolderPaths(folders);
+        return [...new Set(folders.map((folder) => folder.uri))];
+      }
+    } catch (error) {
+      connection.console.log(
+        `Unable to query workspace folders; falling back to the initialize root: ${String(error)}`,
+      );
+    }
+  }
+
+  return rootFolderUri ? [rootFolderUri] : [];
+}
 
 connection.onInitialize((params: InitializeParams) => {
   logDebug("initialize", {
@@ -97,14 +116,20 @@ connection.onInitialize((params: InitializeParams) => {
     capabilities.textDocument.publishDiagnostics &&
     capabilities.textDocument.publishDiagnostics.relatedInformation
   );
+  rootFolderPath = null;
+  rootFolderUri = null;
   if (params.rootUri) {
     try {
-      rootFolderPath = path.normalize(URI.parse(params.rootUri).fsPath);
+      const parsedRootUri = URI.parse(params.rootUri);
+      rootFolderPath = path.normalize(parsedRootUri.fsPath);
+      rootFolderUri = parsedRootUri.toString();
     } catch {
       rootFolderPath = null;
+      rootFolderUri = null;
     }
   } else if (params.rootPath) {
     rootFolderPath = path.normalize(params.rootPath);
+    rootFolderUri = URI.file(params.rootPath).toString();
   }
   updateWorkspaceFolderPaths(params.workspaceFolders || undefined);
 
@@ -125,12 +150,9 @@ connection.onInitialized(async () => {
   }
 
   // Scan workspace for CSS variables on initialization with progress reporting
-  const workspaceFolders = await connection.workspace.getWorkspaceFolders();
-  if (workspaceFolders) {
-    updateWorkspaceFolderPaths(workspaceFolders || undefined);
+  const folderUris = await workspaceFolderUrisForScan();
+  if (folderUris.length > 0) {
     connection.console.log("Scanning workspace for CSS variables...");
-
-    const folderUris = workspaceFolders.map((f) => f.uri);
 
     // Scan with progress callback that logs to console
     let lastLoggedPercentage = 0;
