@@ -1,8 +1,11 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import * as os from "node:os";
 import * as path from "node:path";
 import { TextDocument } from "vscode-languageserver-textdocument";
+import { URI } from "vscode-uri";
 
 interface LspMessage {
   jsonrpc: "2.0";
@@ -13,13 +16,22 @@ interface LspMessage {
   error?: unknown;
 }
 
+interface LspClientOptions {
+  workspaceFolders?: Array<{ uri: string; name: string }> | null;
+  workspaceFoldersError?: boolean;
+}
+
 class LspClient {
   private buffer = Buffer.alloc(0);
   private queue: LspMessage[] = [];
   private waiters: Array<(message: LspMessage) => void> = [];
   private nextId = 1;
+  private serverRequestCounts = new Map<string, number>();
 
-  constructor(private child: ChildProcessWithoutNullStreams) {
+  constructor(
+    private child: ChildProcessWithoutNullStreams,
+    private options: LspClientOptions = {},
+  ) {
     this.child.stdout.on("data", (chunk: Buffer) => {
       this.buffer = Buffer.concat([this.buffer, chunk]);
       this.drainBuffer();
@@ -69,10 +81,30 @@ class LspClient {
   }
 
   private async respondToServerRequest(message: LspMessage) {
+    const method = message.method as string;
+    this.serverRequestCounts.set(
+      method,
+      (this.serverRequestCounts.get(method) ?? 0) + 1,
+    );
+
     let result: unknown = null;
     switch (message.method) {
       case "workspace/workspaceFolders":
-        result = [];
+        if (this.options.workspaceFoldersError) {
+          this.send({
+            jsonrpc: "2.0",
+            id: message.id,
+            error: {
+              code: -32603,
+              message: "workspace folders unavailable",
+            },
+          });
+          return;
+        }
+        result =
+          this.options.workspaceFolders === undefined
+            ? []
+            : this.options.workspaceFolders;
         break;
       case "workspace/configuration":
         result = [];
@@ -100,6 +132,10 @@ class LspClient {
 
   notify(method: string, params?: unknown) {
     this.send({ jsonrpc: "2.0", method, params });
+  }
+
+  getServerRequestCount(method: string): number {
+    return this.serverRequestCounts.get(method) ?? 0;
   }
 
   waitForNotification(
@@ -163,7 +199,7 @@ class LspClient {
   }
 }
 
-function startServer(args: string[] = []) {
+function startServer(args: string[] = [], options: LspClientOptions = {}) {
   const serverPath = path.join(__dirname, "..", "src", "server.ts");
   const child = spawn(
     process.execPath,
@@ -178,7 +214,7 @@ function startServer(args: string[] = []) {
     },
   ) as ChildProcessWithoutNullStreams;
 
-  return { child, client: new LspClient(child) };
+  return { child, client: new LspClient(child, options) };
 }
 
 async function stopServer(
@@ -191,15 +227,46 @@ async function stopServer(
   }
 }
 
-async function initializeClient(client: LspClient) {
+async function initializeClient(
+  client: LspClient,
+  overrides: Record<string, unknown> = {},
+) {
   const response = await client.request("initialize", {
     processId: null,
     rootUri: null,
     capabilities: {},
     workspaceFolders: null,
+    ...overrides,
   });
   client.notify("initialized");
   return response;
+}
+
+async function createWorkspace(variableName: string) {
+  const directory = await mkdtemp(
+    path.join(os.tmpdir(), "css-lsp-integration-"),
+  );
+  const cssPath = path.join(directory, "variables.css");
+  await writeFile(
+    cssPath,
+    `:root { ${variableName}: #663399; }\n`,
+    "utf8",
+  );
+  return { directory, cssPath };
+}
+
+async function waitForWorkspaceScan(client: LspClient) {
+  await client.waitForNotification(
+    "window/logMessage",
+    (params) => {
+      const message = (params as { message?: unknown }).message;
+      return (
+        typeof message === "string" &&
+        message.includes("Workspace scan complete")
+      );
+    },
+    5000,
+  );
 }
 
 function fullDocumentRange(text: string) {
@@ -224,6 +291,149 @@ test(
     }
   },
 );
+
+test("rootUri scans without requesting unsupported workspace folders", async () => {
+  const workspace = await createWorkspace("--root-color");
+  const { child, client } = startServer();
+  try {
+    await initializeClient(client, {
+      rootUri: URI.file(workspace.directory).toString(),
+    });
+    await waitForWorkspaceScan(client);
+
+    assert.equal(client.getServerRequestCount("workspace/workspaceFolders"), 0);
+
+    const symbolsResponse = await client.request("workspace/symbol", {
+      query: "root-color",
+    });
+    const symbols = symbolsResponse.result as Array<{ name: string }>;
+    assert.deepEqual(
+      symbols.map((symbol) => symbol.name),
+      ["--root-color"],
+    );
+
+    const documentText = ".card { color: var(--root";
+    const documentUri = URI.file(
+      path.join(workspace.directory, "consumer.css"),
+    ).toString();
+    client.notify("textDocument/didOpen", {
+      textDocument: {
+        uri: documentUri,
+        languageId: "css",
+        version: 1,
+        text: documentText,
+      },
+    });
+    const completionResponse = await client.request("textDocument/completion", {
+      textDocument: { uri: documentUri },
+      position: { line: 0, character: documentText.length },
+    });
+    const completions = completionResponse.result as Array<{ label: string }>;
+    assert.ok(
+      completions.some((completion) => completion.label === "--root-color"),
+    );
+  } finally {
+    await stopServer(child, client);
+    await rm(workspace.directory, { recursive: true, force: true });
+  }
+});
+
+test("legacy rootPath is converted to a file URI for scanning", async () => {
+  const workspace = await createWorkspace("--legacy-root");
+  const { child, client } = startServer();
+  try {
+    await initializeClient(client, {
+      rootPath: workspace.directory,
+    });
+    await waitForWorkspaceScan(client);
+
+    const symbolsResponse = await client.request("workspace/symbol", {
+      query: "legacy-root",
+    });
+    const symbols = symbolsResponse.result as Array<{
+      name: string;
+      location: { uri: string };
+    }>;
+    assert.equal(symbols.length, 1);
+    assert.equal(symbols[0].name, "--legacy-root");
+    assert.equal(symbols[0].location.uri, URI.file(workspace.cssPath).toString());
+  } finally {
+    await stopServer(child, client);
+    await rm(workspace.directory, { recursive: true, force: true });
+  }
+});
+
+test("advertised multi-root folders take precedence without duplicates", async () => {
+  const rootWorkspace = await createWorkspace("--root-only");
+  const advertisedWorkspace = await createWorkspace("--workspace-only");
+  const { child, client } = startServer([], {
+    workspaceFolders: [
+      {
+        uri: URI.file(rootWorkspace.directory).toString(),
+        name: "root",
+      },
+      {
+        uri: URI.file(advertisedWorkspace.directory).toString(),
+        name: "advertised",
+      },
+    ],
+  });
+  try {
+    await initializeClient(client, {
+      rootUri: URI.file(rootWorkspace.directory).toString(),
+      capabilities: { workspace: { workspaceFolders: true } },
+    });
+    await waitForWorkspaceScan(client);
+
+    assert.equal(client.getServerRequestCount("workspace/workspaceFolders"), 1);
+
+    const advertisedResponse = await client.request("workspace/symbol", {
+      query: "workspace-only",
+    });
+    assert.equal((advertisedResponse.result as unknown[]).length, 1);
+
+    const rootResponse = await client.request("workspace/symbol", {
+      query: "root-only",
+    });
+    assert.equal((rootResponse.result as unknown[]).length, 1);
+  } finally {
+    await stopServer(child, client);
+    await rm(rootWorkspace.directory, { recursive: true, force: true });
+    await rm(advertisedWorkspace.directory, { recursive: true, force: true });
+  }
+});
+
+test("rootUri is the fallback for unavailable workspace folders", async () => {
+  const cases: Array<{ name: string; options: LspClientOptions }> = [
+    { name: "null response", options: { workspaceFolders: null } },
+    { name: "empty response", options: { workspaceFolders: [] } },
+    { name: "failed request", options: { workspaceFoldersError: true } },
+  ];
+
+  for (const testCase of cases) {
+    const workspace = await createWorkspace("--fallback-root");
+    const { child, client } = startServer([], testCase.options);
+    try {
+      await initializeClient(client, {
+        rootUri: URI.file(workspace.directory).toString(),
+        capabilities: { workspace: { workspaceFolders: true } },
+      });
+      await waitForWorkspaceScan(client);
+
+      const symbolsResponse = await client.request("workspace/symbol", {
+        query: "fallback-root",
+      });
+      assert.equal(
+        (symbolsResponse.result as unknown[]).length,
+        1,
+        testCase.name,
+      );
+    } finally {
+      await stopServer(child, client);
+      await rm(workspace.directory, { recursive: true, force: true });
+    }
+  }
+});
 
 test("diagnostics revalidate across open documents", async () => {
   const { child, client } = startServer();
