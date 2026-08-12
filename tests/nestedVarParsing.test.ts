@@ -7,7 +7,7 @@ function createDoc(uri: string, content: string, languageId: string = "css") {
   return TextDocument.create(uri, languageId, 1, content);
 }
 
-test("css-tree parses nested var() in fallback as Raw node", () => {
+test("nested var() in a fallback is tracked", () => {
   const manager = new CssVariableManager();
   
   // Define both variables
@@ -27,17 +27,28 @@ test("css-tree parses nested var() in fallback as Raw node", () => {
   const primaryUsages = manager.getVariableUsages("--primary");
   assert.strictEqual(primaryUsages.length, 1);
   
-  // The nested --fallback in the fallback value is NOT tracked as a usage
-  // because css-tree parses the fallback as a Raw node, not as a Function node
+  // css-tree exposes the fallback as Raw text, but the manager still scans it.
   const fallbackUsages = manager.getVariableUsages("--fallback");
-  assert.strictEqual(fallbackUsages.length, 0);
+  assert.strictEqual(fallbackUsages.length, 1);
+  const document = createDoc("file:///test.css", css);
+  const nestedCall = "var(--fallback)";
+  const nestedStart = css.indexOf(nestedCall);
+  const nestedNameStart = css.indexOf("--fallback", nestedStart);
+  assert.deepEqual(fallbackUsages[0].range, {
+    start: document.positionAt(nestedStart),
+    end: document.positionAt(nestedStart + nestedCall.length),
+  });
+  assert.deepEqual(fallbackUsages[0].nameRange, {
+    start: document.positionAt(nestedNameStart),
+    end: document.positionAt(nestedNameStart + "--fallback".length),
+  });
   
   // Both variables ARE defined, though
   assert.strictEqual(manager.getVariables("--primary").length, 1);
   assert.strictEqual(manager.getVariables("--fallback").length, 1);
 });
 
-test("multiple levels of nesting also parsed as Raw", () => {
+test("multiple levels of nested fallback usages are tracked", () => {
   const manager = new CssVariableManager();
   
   const css = `
@@ -53,10 +64,9 @@ test("multiple levels of nesting also parsed as Raw", () => {
   
   manager.parseContent(css, "file:///test.css", "css");
   
-  // Only the outermost var() is tracked
   assert.strictEqual(manager.getVariableUsages("--a").length, 1);
-  assert.strictEqual(manager.getVariableUsages("--b").length, 0);
-  assert.strictEqual(manager.getVariableUsages("--c").length, 0);
+  assert.strictEqual(manager.getVariableUsages("--b").length, 1);
+  assert.strictEqual(manager.getVariableUsages("--c").length, 1);
 });
 
 test("separate var() calls are all tracked", () => {
@@ -117,10 +127,9 @@ test("fallback with static value doesn't create false usage", () => {
   assert.ok(!allUsages.some(u => u.name.includes("blue")));
 });
 
-test("understanding css-tree's Raw node behavior", () => {
+test("raw fallback nodes are scanned for nested references", () => {
   const manager = new CssVariableManager();
   
-  // This documents WHY nested var() isn't tracked:
   // css-tree parses var() arguments like this:
   //   var(--name, fallback)
   //   ├─ Identifier: --name
@@ -140,13 +149,37 @@ test("understanding css-tree's Raw node behavior", () => {
   
   manager.parseContent(css, "file:///test.css", "css");
   
-  // This behavior is a limitation of how css-tree parses var() functions
-  // The fallback portion is kept as raw text for flexibility
   assert.strictEqual(manager.getVariableUsages("--outer").length, 1);
-  assert.strictEqual(manager.getVariableUsages("--inner").length, 0);
+  assert.strictEqual(manager.getVariableUsages("--inner").length, 1);
 });
 
-test("references (definitions + usages) only includes tracked items", () => {
+test("nested fallback usages are tracked in HTML inline styles", () => {
+  const manager = new CssVariableManager();
+  const html =
+    '<div style="color: var(--primary, var(--fallback))"></div>';
+
+  manager.parseContent(html, "file:///test.html", "html");
+
+  assert.strictEqual(manager.getVariableUsages("--primary").length, 1);
+  assert.strictEqual(manager.getVariableUsages("--fallback").length, 1);
+});
+
+test("quoted and commented fallback text does not create usages", () => {
+  const manager = new CssVariableManager();
+  const css = `
+    .btn {
+      color: var(--primary, "var(--quoted)" /* var(--commented) */);
+    }
+  `;
+
+  manager.parseContent(css, "file:///test.css", "css");
+
+  assert.strictEqual(manager.getVariableUsages("--primary").length, 1);
+  assert.strictEqual(manager.getVariableUsages("--quoted").length, 0);
+  assert.strictEqual(manager.getVariableUsages("--commented").length, 0);
+});
+
+test("references include nested fallback usages", () => {
   const manager = new CssVariableManager();
   
   const css = `
@@ -160,13 +193,12 @@ test("references (definitions + usages) only includes tracked items", () => {
   const primaryRefs = manager.getReferences("--primary");
   assert.strictEqual(primaryRefs.length, 2);
   
-  // --fallback has 1 definition + 0 usages = 1 reference
-  // (usage in nested var is not tracked)
+  // --fallback has 1 definition + 1 nested usage = 2 references
   const fallbackRefs = manager.getReferences("--fallback");
-  assert.strictEqual(fallbackRefs.length, 1);
+  assert.strictEqual(fallbackRefs.length, 2);
 });
 
-test("rename doesn't affect untracked nested var() usages", () => {
+test("rename references include nested var() usages", () => {
   const manager = new CssVariableManager();
   
   const css = `
@@ -176,12 +208,9 @@ test("rename doesn't affect untracked nested var() usages", () => {
   
   manager.parseContent(css, "file:///test.css", "css");
   
-  // If we renamed --fallback, only the definition would be renamed
-  // The nested usage in the fallback wouldn't be found/renamed
-  // because it's stored as raw text
   const refs = manager.getReferences("--fallback");
   
-  // Only 1 reference (the definition), not 2 (definition + usage)
-  assert.strictEqual(refs.length, 1);
-  assert.ok("value" in refs[0]); // It's a definition, not a usage
+  assert.strictEqual(refs.length, 2);
+  assert.ok(refs.some((reference) => "value" in reference));
+  assert.ok(refs.some((reference) => !("value" in reference)));
 });
