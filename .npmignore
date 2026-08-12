@@ -2,7 +2,6 @@
 .git
 .gitattributes
 .vscode
-.beads
 history/
 
 # Ignore TypeScript source files (we ship compiled JS)
