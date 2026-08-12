@@ -114,6 +114,112 @@ function normalizeUri(uri: string): string {
   }
 }
 
+interface RawVariableUsageOffsets {
+  name: string;
+  start: number;
+  end: number;
+  nameStart: number;
+  nameEnd: number;
+}
+
+function findFunctionEnd(text: string, openParen: number): number {
+  let depth = 0;
+  let quote: string | null = null;
+
+  for (let index = openParen; index < text.length; index++) {
+    const character = text[index];
+    if (quote !== null) {
+      if (character === "\\") {
+        index++;
+      } else if (character === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === "/" && text[index + 1] === "*") {
+      const commentEnd = text.indexOf("*/", index + 2);
+      if (commentEnd === -1) {
+        return text.length;
+      }
+      index = commentEnd + 1;
+      continue;
+    }
+    if (character === "(") {
+      depth++;
+    } else if (character === ")") {
+      depth--;
+      if (depth === 0) {
+        return index + 1;
+      }
+    }
+  }
+
+  return text.length;
+}
+
+function extractRawVariableUsages(text: string): RawVariableUsageOffsets[] {
+  const usages: RawVariableUsageOffsets[] = [];
+  let quote: string | null = null;
+
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index];
+    if (quote !== null) {
+      if (character === "\\") {
+        index++;
+      } else if (character === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === "/" && text[index + 1] === "*") {
+      const commentEnd = text.indexOf("*/", index + 2);
+      if (commentEnd === -1) {
+        break;
+      }
+      index = commentEnd + 1;
+      continue;
+    }
+
+    const previous = index > 0 ? text[index - 1] : "";
+    if (
+      text.slice(index, index + 4).toLowerCase() !== "var(" ||
+      /[\w-]/.test(previous)
+    ) {
+      continue;
+    }
+
+    let nameStart = index + 4;
+    while (/\s/.test(text[nameStart] ?? "")) {
+      nameStart++;
+    }
+    const nameMatch = text.slice(nameStart).match(/^--[\w-]+/);
+    if (!nameMatch) {
+      continue;
+    }
+
+    const name = nameMatch[0];
+    usages.push({
+      name,
+      start: index,
+      end: findFunctionEnd(text, index + 3),
+      nameStart,
+      nameEnd: nameStart + name.length,
+    });
+  }
+
+  return usages;
+}
+
 export class CssVariableManager {
   private variables: Map<string, CssVariable[]> = new Map();
   private usages: Map<string, CssVariableUsage[]> = new Map();
@@ -148,6 +254,44 @@ export class CssVariableManager {
         ? normalizedIgnoreGlobs
         : DEFAULT_IGNORE_GLOBS;
     this.lookupExtensions = this.buildLookupExtensions(this.lookupFiles);
+  }
+
+  private addRawVariableUsages(
+    rawText: string,
+    rawStartOffset: number,
+    documentOffset: number,
+    uri: string,
+    document: TextDocument,
+    usageContext: string,
+    domNode?: DOMNodeInfo
+  ): void {
+    for (const reference of extractRawVariableUsages(rawText)) {
+      const absoluteStart = documentOffset + rawStartOffset + reference.start;
+      const absoluteEnd = documentOffset + rawStartOffset + reference.end;
+      const absoluteNameStart =
+        documentOffset + rawStartOffset + reference.nameStart;
+      const absoluteNameEnd =
+        documentOffset + rawStartOffset + reference.nameEnd;
+      const usage: CssVariableUsage = {
+        name: reference.name,
+        uri,
+        range: Range.create(
+          document.positionAt(absoluteStart),
+          document.positionAt(absoluteEnd)
+        ),
+        nameRange: Range.create(
+          document.positionAt(absoluteNameStart),
+          document.positionAt(absoluteNameEnd)
+        ),
+        usageContext,
+        domNode,
+      };
+
+      if (!this.usages.has(reference.name)) {
+        this.usages.set(reference.name, []);
+      }
+      this.usages.get(reference.name)?.push(usage);
+    }
   }
 
   private buildLookupExtensions(lookupFiles: string[]): Map<string, string> {
@@ -355,6 +499,7 @@ export class CssVariableManager {
       });
 
       const selectorStack: string[] = [];
+      let varFunctionDepth = 0;
 
       csstree.walk(ast, {
         enter: (node: csstree.CssNode) => {
@@ -453,6 +598,7 @@ export class CssVariableManager {
           }
 
           if (node.type === "Function" && node.name === "var") {
+            varFunctionDepth++;
             const children = node.children;
             if (children && children.first) {
               const firstChild = children.first;
@@ -502,8 +648,30 @@ export class CssVariableManager {
               }
             }
           }
+
+          if (node.type === "Raw" && varFunctionDepth > 0 && node.loc) {
+            const rawText = text.slice(
+              node.loc.start.offset,
+              node.loc.end.offset
+            );
+            const usageContext =
+              selectorStack.length > 0
+                ? selectorStack[selectorStack.length - 1]
+                : "";
+            this.addRawVariableUsages(
+              rawText,
+              node.loc.start.offset,
+              offset,
+              uri,
+              document,
+              usageContext
+            );
+          }
         },
         leave: (node: csstree.CssNode) => {
+          if (node.type === "Function" && node.name === "var") {
+            varFunctionDepth--;
+          }
           if (node.type === "Rule") {
             selectorStack.pop();
           }
@@ -536,6 +704,7 @@ export class CssVariableManager {
         },
       });
 
+      let varFunctionDepth = 0;
       csstree.walk(ast, {
         enter: (node: csstree.CssNode) => {
           if (node.type === "Declaration" && node.property.startsWith("--")) {
@@ -613,6 +782,7 @@ export class CssVariableManager {
           }
 
           if (node.type === "Function" && node.name === "var") {
+            varFunctionDepth++;
             const children = node.children;
             if (children && children.first) {
               const firstChild = children.first;
@@ -661,6 +831,28 @@ export class CssVariableManager {
                 }
               }
             }
+          }
+
+          if (node.type === "Raw" && varFunctionDepth > 0 && node.loc) {
+            const rawText = text.slice(
+              node.loc.start.offset,
+              node.loc.end.offset
+            );
+            const domTree = this.domTrees.get(uri);
+            this.addRawVariableUsages(
+              rawText,
+              node.loc.start.offset,
+              offset,
+              uri,
+              document,
+              "inline-style",
+              domTree?.findNodeAtPosition(attributeOffset)
+            );
+          }
+        },
+        leave: (node: csstree.CssNode) => {
+          if (node.type === "Function" && node.name === "var") {
+            varFunctionDepth--;
           }
         },
       });

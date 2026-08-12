@@ -261,10 +261,7 @@ test("rename with nested var() fallback", () => {
   
   const testEdits = edits.changes?.["file:///test.css"];
   assert.ok(testEdits);
-  // css-tree parses var() fallback values as Raw text nodes, not as Function nodes
-  // So the nested var(--fallback) is not extracted as a separate usage
-  // Only the definition is tracked and will be renamed
-  assert.strictEqual(testEdits.length, 1); // Only the definition
+  assert.strictEqual(testEdits.length, 2); // Definition and nested usage
 });
 
 test("rename empty workspace returns empty edits", () => {
