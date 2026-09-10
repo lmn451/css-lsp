@@ -16,6 +16,7 @@ import {
   WorkspaceSymbol,
   TextEdit,
   FileChangeType,
+  DidChangeWatchedFilesNotification,
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { CssVariable } from "./cssVariableManager";
@@ -23,7 +24,7 @@ import { getCssCompletionContext } from "./completionContext";
 import * as path from "path";
 import { URI } from "vscode-uri";
 
-import { CssVariableManager } from "./cssVariableManager";
+import { CssVariableManager, normalizeUri } from "./cssVariableManager";
 import {
   collectColorPresentations,
   collectDocumentColors,
@@ -75,6 +76,7 @@ const cssVariableManager = new CssVariableManager(
 
 let hasWorkspaceFolderCapability = false;
 let hasDiagnosticRelatedInformationCapability = false;
+let hasDynamicFileWatchingCapability = false;
 let workspaceFolderPaths: string[] = [];
 let rootFolderPath: string | null = null;
 let rootFolderUri: string | null = null;
@@ -116,6 +118,8 @@ connection.onInitialize((params: InitializeParams) => {
     capabilities.textDocument.publishDiagnostics &&
     capabilities.textDocument.publishDiagnostics.relatedInformation
   );
+  hasDynamicFileWatchingCapability =
+    !!capabilities.workspace?.didChangeWatchedFiles?.dynamicRegistration;
   rootFolderPath = null;
   rootFolderUri = null;
   if (params.rootUri) {
@@ -140,6 +144,19 @@ connection.onInitialize((params: InitializeParams) => {
 });
 
 connection.onInitialized(async () => {
+  if (hasDynamicFileWatchingCapability) {
+    try {
+      await connection.client.register(DidChangeWatchedFilesNotification.type, {
+        watchers: cssVariableManager
+          .getLookupGlobs()
+          .map((globPattern) => ({ globPattern })),
+      });
+    } catch (error) {
+      connection.console.log(
+        `Unable to register file watchers: ${String(error)}`,
+      );
+    }
+  }
   if (hasWorkspaceFolderCapability) {
     connection.workspace.onDidChangeWorkspaceFolders((_event) => {
       connection.console.log("Workspace folder change event received.");
@@ -180,15 +197,42 @@ connection.onInitialized(async () => {
 // Handle document close events
 documents.onDidClose(async (e) => {
   connection.console.log(`[css-lsp] Document closed: ${e.document.uri}`);
+  const pending = validationTimeouts.get(e.document.uri);
+  if (pending) {
+    clearTimeout(pending);
+    validationTimeouts.delete(e.document.uri);
+  }
+  const previousNames = getDefinedNames(e.document.uri);
+  documentUsageNames.delete(e.document.uri);
   // When a document is closed, we need to revert to the file system version
   // instead of removing it completely (which would break workspace files).
   // This handles cases where the editor had unsaved changes.
   await cssVariableManager.updateFile(e.document.uri);
+  scheduleDependentValidation(previousNames, e.document.uri);
+  connection.sendDiagnostics({ uri: e.document.uri, diagnostics: [] });
 });
 
 // Debounce map for validation (per document URI)
 const validationTimeouts: Map<string, NodeJS.Timeout> = new Map();
 let validateAllTimeout: NodeJS.Timeout | null = null;
+const pendingDefinitionNames = new Set<string>();
+const documentUsageNames = new Map<string, Set<string>>();
+
+function diagnosticUsages(
+  document: TextDocument,
+): IterableIterator<RegExpExecArray> {
+  // Use the same extraction for dependency tracking and diagnostics, including
+  // open embedded-language buffers that the CSS index may not fully parse.
+  return document.getText().matchAll(/var\((--[\w-]+)(?:\s*,\s*([^)]+))?\)/g);
+}
+
+function getDefinedNames(uri: string): Set<string> {
+  return new Set(
+    cssVariableManager
+      .getDocumentDefinitions(uri)
+      .map((definition) => definition.name),
+  );
+}
 
 function scheduleValidation(textDocument: TextDocument): void {
   // Debounce validation to avoid excessive diagnostic updates while typing
@@ -202,24 +246,50 @@ function scheduleValidation(textDocument: TextDocument): void {
 
   // Schedule validation after 300ms of inactivity
   const timeout = setTimeout(() => {
-    validateTextDocument(textDocument);
+    const current = documents.get(uri);
+    if (current) {
+      validateTextDocument(current);
+    }
     validationTimeouts.delete(uri);
   }, 300);
 
   validationTimeouts.set(uri, timeout);
 }
 
-function scheduleValidateAllOpenDocuments(excludeUri?: string): void {
+function scheduleDependentValidation(
+  previousNames: Set<string>,
+  uri: string,
+): void {
+  // Keep every changed name until validation runs, including definitions removed
+  // by earlier edits in this debounce window or edits in another document.
+  for (const name of previousNames) {
+    pendingDefinitionNames.add(name);
+  }
+  for (const name of getDefinedNames(uri)) {
+    pendingDefinitionNames.add(name);
+  }
+  if (pendingDefinitionNames.size === 0) {
+    return;
+  }
   if (validateAllTimeout) {
     clearTimeout(validateAllTimeout);
   }
 
   validateAllTimeout = setTimeout(() => {
-    documents.all().forEach((document) => {
-      if (excludeUri && document.uri === excludeUri) {
-        return;
+    const affectedUris = new Set<string>();
+    for (const [documentUri, names] of documentUsageNames) {
+      for (const name of names) {
+        if (pendingDefinitionNames.has(name)) {
+          affectedUris.add(documentUri);
+          break;
+        }
       }
-      validateTextDocument(document);
+    }
+    pendingDefinitionNames.clear();
+    documents.all().forEach((document) => {
+      if (affectedUris.has(document.uri)) {
+        validateTextDocument(document);
+      }
     });
     validateAllTimeout = null;
   }, 300);
@@ -230,22 +300,22 @@ function scheduleValidateAllOpenDocuments(excludeUri?: string): void {
 // Note: We don't need a separate onDidOpen handler because onDidChangeContent
 // already fires when a document is first opened, avoiding double-parsing.
 documents.onDidChangeContent((change) => {
+  const previousNames = getDefinedNames(change.document.uri);
   // Parse immediately (needed for completion/hover)
   cssVariableManager.parseDocument(change.document);
+  documentUsageNames.set(
+    change.document.uri,
+    new Set(Array.from(diagnosticUsages(change.document), (usage) => usage[1])),
+  );
 
   scheduleValidation(change.document);
-  scheduleValidateAllOpenDocuments(change.document.uri);
+  scheduleDependentValidation(previousNames, change.document.uri);
 });
 
 async function validateTextDocument(textDocument: TextDocument): Promise<void> {
-  const text = textDocument.getText();
   const diagnostics: Diagnostic[] = [];
 
-  // Find all var(--variable) usages
-  const usageRegex = /var\((--[\w-]+)(?:\s*,\s*([^)]+))?\)/g;
-  let match;
-
-  while ((match = usageRegex.exec(text)) !== null) {
+  for (const match of diagnosticUsages(textDocument)) {
     const variableName = match[1];
     const hasFallback = Boolean(match[2]);
     const definitions = cssVariableManager.getVariables(variableName);
@@ -291,19 +361,24 @@ connection.onDidChangeWatchedFiles(async (change) => {
   logDebug("didChangeWatchedFiles", change);
 
   for (const fileEvent of change.changes) {
+    const previousNames = getDefinedNames(fileEvent.uri);
     if (fileEvent.type === FileChangeType.Deleted) {
       cssVariableManager.removeFile(fileEvent.uri);
+    } else if (
+      !documents
+        .all()
+        .some(
+          (document) =>
+            normalizeUri(document.uri) === normalizeUri(fileEvent.uri),
+        )
+    ) {
+      // Open buffers already update the index through didChangeContent.
+      await cssVariableManager.updateFile(fileEvent.uri);
     } else {
-      // Created or Changed
-      // If the document is open, we skip because onDidChangeContent handles it.
-      if (!documents.get(fileEvent.uri)) {
-        await cssVariableManager.updateFile(fileEvent.uri);
-      }
+      continue;
     }
+    scheduleDependentValidation(previousNames, fileEvent.uri);
   }
-
-  // Revalidate all open documents
-  documents.all().forEach(validateTextDocument);
 });
 
 /**
@@ -608,6 +683,12 @@ connection.onHover((params) => {
         hoverText += ` **!important**`;
       }
       hoverText += `\n\n`;
+      hoverText += `**Source:** \`${formatUriForDisplay(v.uri, {
+        mode: runtimeConfig.pathDisplayMode,
+        abbrevLength: runtimeConfig.pathDisplayAbbrevLength,
+        workspaceFolderPaths,
+        rootFolderPath,
+      })}\`\n\n`;
 
       if (v.selector) {
         hoverText += `**Defined in:** \`${v.selector}\`\n`;

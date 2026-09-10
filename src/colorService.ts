@@ -10,31 +10,31 @@ export interface ParseColorOptions {
  */
 export function parseColor(
   value: string,
-  options: ParseColorOptions = {}
+  options: ParseColorOptions = {},
 ): Color | null {
   value = value.trim().toLowerCase();
-
-  // Hex
+  let color: Color | null = null;
   if (value.startsWith("#")) {
-    return parseHex(value);
+    color = parseHex(value);
+  } else if (value.startsWith("rgb")) {
+    color = parseRgb(value);
+  } else if (value.startsWith("hsl")) {
+    color = parseHsl(value);
+  } else if (options.allowNamedColors) {
+    color = parseNamedColor(value);
   }
 
-  // RGB / RGBA
-  if (value.startsWith("rgb")) {
-    return parseRgb(value);
+  // Keep invalid numeric values out of every LSP color response, regardless
+  // of the parser path. Clamp tiny conversion rounding errors as well.
+  if (!color || !Object.values(color).every(Number.isFinite)) {
+    return null;
   }
-
-  // HSL / HSLA
-  if (value.startsWith("hsl")) {
-    return parseHsl(value);
-  }
-
-  // Named colors (optional)
-  if (options.allowNamedColors) {
-    return parseNamedColor(value);
-  }
-
-  return null;
+  return {
+    red: clampUnit(color.red),
+    green: clampUnit(color.green),
+    blue: clampUnit(color.blue),
+    alpha: clampUnit(color.alpha),
+  };
 }
 
 /**
@@ -141,6 +141,9 @@ function toHex(n: number): string {
 }
 
 function parseHex(hex: string): Color | null {
+  if (!/^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/.test(hex)) {
+    return null;
+  }
   hex = hex.substring(1); // Remove #
   if (hex.length === 3) {
     hex = hex
@@ -170,40 +173,106 @@ function parseHex(hex: string): Color | null {
   return { red: r, green: g, blue: b, alpha: a };
 }
 
-function parseRgb(value: string): Color | null {
-  const match = value.match(
-    /rgba?\(([\d\s\.]+),?\s*([\d\s\.]+),?\s*([\d\s\.]+)(?:,?\s*\/?,?\s*([\d\s\.]+))?\)/,
-  );
+function clampUnit(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
+const CSS_NUMBER = "[+-]?(?:[0-9]*\\.[0-9]+|[0-9]+)(?:e[+-]?[0-9]+)?";
+const NUMBER_OR_PERCENT = new RegExp(`^(${CSS_NUMBER})(%)?$`);
+const HUE = new RegExp(`^(${CSS_NUMBER})(deg|grad|rad|turn)?$`);
+
+function parseNumeric(
+  token: string,
+): { value: number; percent: boolean } | null {
+  const match = NUMBER_OR_PERCENT.exec(token);
   if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isFinite(value) ? { value, percent: !!match[2] } : null;
+}
 
-  const r = parseFloat(match[1]) / 255;
-  const g = parseFloat(match[2]) / 255;
-  const b = parseFloat(match[3]) / 255;
-  let a = 1;
+function parseAlpha(token: string | undefined): number | null {
+  if (token === undefined) return 1;
+  const parsed = parseNumeric(token);
+  return parsed ? clampUnit(parsed.value / (parsed.percent ? 100 : 1)) : null;
+}
 
-  if (match[4]) {
-    a = parseFloat(match[4]);
+function functionArguments(
+  value: string,
+  name: "rgb" | "hsl",
+): string[] | null {
+  const match = new RegExp(`^${name}a?\\(([\\s\\S]*)\\)$`).exec(value);
+  if (!match) return null;
+  const body = match[1].trim();
+  if (body.includes(",")) {
+    // Legacy comma syntax must not mix in the modern slash separator.
+    if (body.includes("/")) return null;
+    const parts = body.split(",").map((part) => part.trim());
+    return (parts.length === 3 || parts.length === 4) && parts.every(Boolean)
+      ? parts
+      : null;
   }
+  const parts = body.split("/");
+  if (parts.length > 2) return null;
+  const channels = parts[0].trim().split(/[ \t\r\n\f]+/);
+  if (channels.length !== 3) return null;
+  if (parts.length === 2) {
+    const alpha = parts[1].trim();
+    if (!alpha) return null;
+    channels.push(alpha);
+  }
+  return channels;
+}
 
-  return { red: r, green: g, blue: b, alpha: a };
+function parseRgb(value: string): Color | null {
+  const parts = functionArguments(value, "rgb");
+  if (!parts) return null;
+  const channels = parts.slice(0, 3).map(parseNumeric);
+  if (channels.some((channel) => channel === null)) return null;
+  // Legacy RGB channels must all use either numbers or percentages.
+  if (
+    value.includes(",") &&
+    channels.some((channel) => channel!.percent !== channels[0]!.percent)
+  ) {
+    return null;
+  }
+  const rgb = channels.map((channel) =>
+    clampUnit(channel!.value / (channel!.percent ? 100 : 255)),
+  );
+  const alpha = parseAlpha(parts[3]);
+  return alpha === null
+    ? null
+    : { red: rgb[0], green: rgb[1], blue: rgb[2], alpha };
 }
 
 function parseHsl(value: string): Color | null {
-  const match = value.match(
-    /hsla?\(([\d\s\.]+)(?:deg)?,?\s*([\d\s\.]+)%?,?\s*([\d\s\.]+)%?(?:,?\s*\/?,?\s*([\d\s\.]+))?\)/,
-  );
-  if (!match) return null;
-
-  const h = parseFloat(match[1]) / 360;
-  const s = parseFloat(match[2]) / 100;
-  const l = parseFloat(match[3]) / 100;
-  let a = 1;
-
-  if (match[4]) {
-    a = parseFloat(match[4]);
+  const parts = functionArguments(value, "hsl");
+  if (!parts) return null;
+  const hue = HUE.exec(parts[0]);
+  const saturation = parseNumeric(parts[1]);
+  const lightness = parseNumeric(parts[2]);
+  const alpha = parseAlpha(parts[3]);
+  if (!hue || !saturation || !lightness || alpha === null) {
+    return null;
   }
-
-  return hslToRgb(h, s, l, a);
+  if (value.includes(",") && (!saturation.percent || !lightness.percent))
+    return null;
+  const angle = Number(hue[1]);
+  if (!Number.isFinite(angle)) return null;
+  const turn =
+    hue[2] === "grad"
+      ? 400
+      : hue[2] === "rad"
+        ? 2 * Math.PI
+        : hue[2] === "turn"
+          ? 1
+          : 360;
+  const h = (((angle % turn) + turn) % turn) / turn;
+  return hslToRgb(
+    h,
+    clampUnit(saturation.value / 100),
+    clampUnit(lightness.value / 100),
+    alpha,
+  );
 }
 
 function hslToRgb(h: number, s: number, l: number, a: number): Color {
@@ -384,7 +453,7 @@ function parseNamedColor(name: string): Color | null {
     rebeccapurple: "#663399",
   };
 
-  if (colors[name]) {
+  if (Object.hasOwn(colors, name)) {
     return parseHex(colors[name]);
   }
   return null;

@@ -1,7 +1,7 @@
 import { Range } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { URI } from "vscode-uri";
-import { glob } from "glob";
+import { escape as escapeGlob, glob, globSync } from "glob";
 import * as fs from "fs";
 import * as csstree from "css-tree";
 import { DOMTree, DOMNodeInfo } from "./domTree";
@@ -10,6 +10,11 @@ import { Color } from "vscode-languageserver/node";
 import { parseColor } from "./colorService";
 import { calculateSpecificity, compareSpecificity } from "./specificity";
 import * as path from "path";
+import {
+  ASTRO_CONFIG_GLOB,
+  extractAstroFontVariables,
+  isAstroConfigFile,
+} from "./astroConfig";
 
 export interface CssVariable {
   name: string;
@@ -106,11 +111,21 @@ function extractExtensions(pattern: string): string[] {
   return ext ? [ext] : [];
 }
 
-function normalizeUri(uri: string): string {
+export function normalizeUri(uri: string): string {
   try {
-    return URI.parse(uri).toString().toLowerCase();
+    const parsed = URI.parse(uri);
+    // URI schemes and authorities are case-insensitive, while paths and
+    // other components can be case-sensitive on the host filesystem.
+    return parsed
+      .with({
+        scheme: parsed.scheme.toLowerCase(),
+        authority: parsed.authority.toLowerCase(),
+      })
+      .toString();
   } catch (e) {
-    return uri.toLowerCase();
+    // A malformed URI cannot be canonicalized safely. Preserve its identity
+    // exactly instead of conflating paths that differ only by case.
+    return uri;
   }
 }
 
@@ -223,11 +238,14 @@ function extractRawVariableUsages(text: string): RawVariableUsageOffsets[] {
 export class CssVariableManager {
   private variables: Map<string, CssVariable[]> = new Map();
   private usages: Map<string, CssVariableUsage[]> = new Map();
-  private domTrees: Map<string, DOMTree> = new Map(); // URI -> DOM tree
+  // All URI-keyed state uses normalizeUri(). Values retain the URI supplied by
+  // the client so LSP edits and locations continue to target that document.
+  private domTrees: Map<string, DOMTree> = new Map(); // canonical URI -> DOM tree
   private logger: Logger;
   private lookupFiles: string[];
   private ignoreGlobs: string[];
   private lookupExtensions: Map<string, string>;
+  private workspaceRoots: string[] = [];
 
   constructor(logger?: Logger, lookupFiles?: string[], ignoreGlobs?: string[]) {
     this.logger = logger || {
@@ -254,6 +272,11 @@ export class CssVariableManager {
         ? normalizedIgnoreGlobs
         : DEFAULT_IGNORE_GLOBS;
     this.lookupExtensions = this.buildLookupExtensions(this.lookupFiles);
+  }
+
+  /** Return the effective workspace lookup globs, including Astro configs. */
+  public getLookupGlobs(): string[] {
+    return [...new Set([...this.lookupFiles, ASTRO_CONFIG_GLOB])];
   }
 
   private addRawVariableUsages(
@@ -326,6 +349,49 @@ export class CssVariableManager {
     return this.resolveLanguageId(filePath) ?? languageId;
   }
 
+  private isIgnoredConfigFile(filePath: string): boolean {
+    // Reuse glob's ignore matcher for watcher updates so an ignored config
+    // cannot enter the index simply because a client reports its URI. Escape
+    // the concrete path first; workspace paths may contain glob metacharacters.
+    const candidateRoots = this.workspaceRoots.filter((root) => {
+      const relative = path.relative(root, filePath);
+      return relative === "" ||
+        (!relative.startsWith("..") && !path.isAbsolute(relative));
+    });
+
+    if (candidateRoots.length > 0) {
+      // A path can belong to more than one workspace root. It is included if
+      // at least one root would have discovered it, matching scanWorkspace's
+      // per-root glob behavior before its deduplication pass.
+      for (const root of candidateRoots) {
+        const relativePath = path
+          .relative(root, filePath)
+          .split(path.sep)
+          .join("/");
+        const matches = globSync(escapeGlob(relativePath), {
+          cwd: root,
+          ignore: this.ignoreGlobs,
+          absolute: true,
+          nodir: true,
+        });
+        if (matches.length > 0) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    // Direct updateFile callers may not have scanned a workspace yet. The
+    // absolute form still handles the default **/node_modules/** and
+    // **/dist/** ignores in that case.
+    const matches = globSync(escapeGlob(filePath), {
+      ignore: this.ignoreGlobs,
+      absolute: true,
+      nodir: true,
+    });
+    return matches.length === 0;
+  }
+
   /**
    * Scan all CSS and HTML files in the workspace
    * @param workspaceFolders Array of workspace folder URIs
@@ -337,13 +403,19 @@ export class CssVariableManager {
   ): Promise<void> {
     // First, collect all files from all folders
     const allFiles: string[] = [];
+    const seenFiles = new Set<string>();
+    this.workspaceRoots = [
+      ...new Set(workspaceFolders.map((folder) => URI.parse(folder).fsPath)),
+    ];
 
     for (const folder of workspaceFolders) {
       const folderUri = URI.parse(folder);
       const folderPath = folderUri.fsPath;
 
-      // Find all CSS and HTML-like files based on lookup globs
-      const files = await glob(this.lookupFiles, {
+      // Find ordinary CSS/HTML-like files and the narrowly targeted Astro
+      // config files. Config discovery is independent of lookupFiles so a
+      // custom CSS glob cannot accidentally turn into a broad JS/TS scan.
+      const files = await glob(this.getLookupGlobs(), {
         cwd: folderPath,
         ignore: this.ignoreGlobs,
         absolute: true,
@@ -352,7 +424,15 @@ export class CssVariableManager {
       this.logger.log(
         `[css-lsp] Scanned ${folder}: found ${files.length} files`
       );
-      allFiles.push(...files);
+      for (const filePath of files) {
+        // Workspace roots may overlap, and URI-equivalent roots can return
+        // the same path using different spellings. Keep one scan per file.
+        const fileKey = normalizeUri(URI.file(filePath).toString());
+        if (!seenFiles.has(fileKey)) {
+          seenFiles.add(fileKey);
+          allFiles.push(filePath);
+        }
+      }
     }
 
     const totalFiles = allFiles.length;
@@ -364,7 +444,10 @@ export class CssVariableManager {
         const content = fs.readFileSync(filePath, "utf-8");
         const fileUri = URI.file(filePath).toString();
 
-        const languageId = this.resolveLanguageId(filePath);
+        const isAstroConfig = isAstroConfigFile(filePath);
+        const languageId = isAstroConfig
+          ? "astro-config"
+          : this.resolveLanguageId(filePath);
         if (!languageId) {
           continue;
         }
@@ -396,9 +479,56 @@ export class CssVariableManager {
     this.parseContent(document.getText(), document.uri, document.languageId);
   }
 
+  private parseAstroConfigText(text: string, uri: string): void {
+    try {
+      const filePath = URI.parse(uri).fsPath;
+      const document = TextDocument.create(uri, "typescript", 1, text);
+      for (const extracted of extractAstroFontVariables(text, filePath)) {
+        const literalRange = Range.create(
+          document.positionAt(extracted.literalStart),
+          document.positionAt(extracted.literalEnd),
+        );
+        const contentRange = Range.create(
+          document.positionAt(extracted.contentStart),
+          document.positionAt(extracted.contentEnd),
+        );
+        const variable: CssVariable = {
+          name: extracted.name,
+          // There is no CSS declaration value in a config file. A clear,
+          // non-color marker keeps completion and hover from presenting the
+          // configured name as though it were a CSS value.
+          value: "(generated by Astro fonts)",
+          uri,
+          range: literalRange,
+          nameRange: contentRange,
+          valueRange: contentRange,
+          selector: ":root",
+          important: false,
+          inline: false,
+          sourcePosition: extracted.literalStart,
+        };
+
+        if (!this.variables.has(variable.name)) {
+          this.variables.set(variable.name, []);
+        }
+        this.variables.get(variable.name)?.push(variable);
+      }
+    } catch (error) {
+      this.logger.error(`Error parsing Astro config ${uri}: ${error}`);
+    }
+  }
+
   public parseContent(text: string, uri: string, languageId: string): void {
     const normalizedUri = normalizeUri(uri);
     this.removeFile(normalizedUri);
+
+    // Astro config files are a separately recognized source type. Do this
+    // before ordinary extension/language resolution so .js/.ts files are
+    // never accidentally handed to the CSS parser.
+    if (isAstroConfigFile(URI.parse(normalizedUri).fsPath)) {
+      this.parseAstroConfigText(text, uri);
+      return;
+    }
 
     const resolvedLanguageId = this.resolveDocumentLanguageId(
       languageId,
@@ -409,7 +539,7 @@ export class CssVariableManager {
       // Build DOM tree for HTML documents
       try {
         const domTree = new DOMTree(text);
-        this.domTrees.set(uri, domTree);
+        this.domTrees.set(normalizedUri, domTree);
       } catch (error) {
         this.logger.error(`Error parsing HTML for ${uri}: ${error}`);
       }
@@ -811,7 +941,7 @@ export class CssVariableManager {
                   }
 
                   // Try to find the DOM node for this inline style
-                  const domTree = this.domTrees.get(uri);
+                  const domTree = this.domTrees.get(normalizeUri(uri));
                   // Use the attributeOffset (start of 'style="...') to find the correct DOM node
                   const domNode = domTree?.findNodeAtPosition(attributeOffset);
 
@@ -838,7 +968,7 @@ export class CssVariableManager {
               node.loc.start.offset,
               node.loc.end.offset
             );
-            const domTree = this.domTrees.get(uri);
+            const domTree = this.domTrees.get(normalizeUri(uri));
             this.addRawVariableUsages(
               rawText,
               node.loc.start.offset,
@@ -878,6 +1008,17 @@ export class CssVariableManager {
       }
 
       const content = fs.readFileSync(filePath, "utf-8");
+      if (isAstroConfigFile(filePath)) {
+        if (this.isIgnoredConfigFile(filePath)) {
+          this.removeFile(uri);
+          this.logger.log(`[css-lsp] Ignoring Astro config ${uri}.`);
+          return;
+        }
+        this.parseContent(content, uri, "astro-config");
+        this.logger.log(`[css-lsp] Updated Astro config ${uri} from disk.`);
+        return;
+      }
+
       const languageId = this.resolveLanguageId(filePath);
       if (!languageId) {
         // Skip unsupported file types
@@ -927,7 +1068,7 @@ export class CssVariableManager {
   }
 
   public clearDocumentDOMTree(uri: string): void {
-    this.domTrees.delete(uri);
+    this.domTrees.delete(normalizeUri(uri));
   }
 
   public getAllVariables(): CssVariable[] {
@@ -976,7 +1117,7 @@ export class CssVariableManager {
    * Get the DOM tree for a document (if it's HTML)
    */
   public getDOMTree(uri: string): DOMTree | undefined {
-    return this.domTrees.get(uri);
+    return this.domTrees.get(normalizeUri(uri));
   }
 
   /**

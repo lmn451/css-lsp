@@ -6,6 +6,7 @@ A Language Server Protocol (LSP) implementation focused on CSS custom properties
 
 - **Context-aware completion** after `var(` in CSS files, HTML `<style>` blocks/`style=""` attributes, and JS/TS string literals, with relevance scoring.
 - **Workspace-wide indexing** across `.css`, `.scss`, `.sass`, `.less`, plus HTML `<style>` blocks and inline styles.
+- **Astro font variables** from static `fonts[].cssVariable` and legacy `experimental.fonts[].cssVariable` declarations in `astro.config.js`, `.mjs`, `.cjs`, `.ts`, `.mts`, and `.cts`. Config files are parsed without executing them; dynamic values are ignored.
 - **Cascade-aware hover** that orders definitions by `!important`, specificity, and source order.
 - **Go to definition**, **find references**, and **rename** support.
 - **Diagnostics** for undefined variables used via `var(--name)`.
@@ -15,7 +16,7 @@ A Language Server Protocol (LSP) implementation focused on CSS custom properties
 
 ### Prerequisites
 
-- Node.js (ES2020-compatible; v16+ recommended)
+- Node.js 20.x or 22+ (`20 || >=22`, matching the production dependencies). The server targets ES2023. CI checks Node 20.0.0 and the latest releases of majors 20, 22, 23, 24, 25, and 26.
 - npm
 
 ### Install / Build
@@ -82,6 +83,7 @@ Defaults:
   - `**/*.svelte`
   - `**/*.astro`
   - `**/*.ripple`
+  - `**/astro.config.{js,mjs,cjs,ts,mts,cts}`
 - Ignore globs:
   - `**/node_modules/**`
   - `**/dist/**`
@@ -89,6 +91,8 @@ Defaults:
   - `**/.git/**`
 
 `abbreviated` mode shortens each directory segment (except the final one) to the configured length, matching fish-style prompt shortening. Lookup/ignore globs accept standard glob patterns (including brace expansions like `**/*.{css,scss}`). Ignore globs replace the defaults when provided (include any defaults you still want to keep).
+
+Astro config discovery remains enabled with custom lookup globs and uses the same ignore globs. Font variable definitions navigate to the configuration string literal and refresh when the configuration changes or is deleted.
 
 ### Completion Path Examples
 
@@ -119,4 +123,5 @@ Hover and color resolution use CSS cascade rules (specificity, `!important`, sou
 
 ```bash
 npm test
+npm run test:package # Install the packed CLI with production dependencies and exercise LSP initialization
 ```
