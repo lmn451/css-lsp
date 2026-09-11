@@ -2,14 +2,18 @@ name: CI
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   pull_request:
-    branches: [ master ]
+    branches: [master]
   workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["20.0.0", "20", "22", "23", "24", "25", "26"]
 
     steps:
       - uses: actions/checkout@v4
@@ -17,7 +21,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node }}
           cache: npm
 
       - name: Install dependencies
@@ -25,3 +29,6 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Smoke test packed CLI with production dependencies
+        run: npm run test:package
