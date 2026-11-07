@@ -76,3 +76,29 @@ test("incremental updates overwrite file", () => {
   assert.strictEqual(vars.length, 1);
   assert.strictEqual(vars[0].value, "v2");
 });
+
+test("incremental edits forming CRLF preserve definition and usage ranges", () => {
+  const manager = new CssVariableManager();
+  const doc = createDoc(
+    "file:///crlf.css",
+    "\n:root { --color: red; color: var(--color); }",
+  );
+  // Prime line offsets, as an editor request would before the edit.
+  assert.equal(doc.lineCount, 2);
+  TextDocument.update(
+    doc,
+    [{
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+      text: "\r",
+    }],
+    2,
+  );
+  manager.parseDocument(doc);
+  assert.equal(doc.lineCount, 2);
+  const definition = manager.getVariables("--color")[0];
+  const usage = manager.getVariableUsages("--color")[0];
+  assert.equal(definition.range.start.line, 1);
+  assert.equal(usage.range.start.line, 1);
+  assert.equal(doc.getText(definition.nameRange), "--color");
+  assert.equal(doc.getText(usage.nameRange), "--color");
+});

@@ -16,13 +16,13 @@ A Language Server Protocol (LSP) implementation focused on CSS custom properties
 
 ### Prerequisites
 
-- Node.js 20.x or 22+ (`20 || >=22`, matching the production dependencies). The server targets ES2023. CI checks Node 20.0.0 and the latest releases of majors 20, 22, 23, 24, 25, and 26.
-- npm
+- Node.js 22 or newer. The server targets ES2023. CI checks Node 22.0.0 and the latest releases of majors 22, 24, and 26.
+- npm (the lockfile and CI use npm; publishing uses npm 12.0.2 on Node 24)
 
 ### Install / Build
 
 ```bash
-npm install
+npm ci
 npm run compile
 ```
 
@@ -121,7 +121,20 @@ Hover and color resolution use CSS cascade rules (specificity, `!important`, sou
 
 ## Testing
 
+The runtime Astro configuration extractor uses TypeScript's JavaScript compiler API. TypeScript stays on the compatible 6.0 line because [TypeScript 7 does not expose the stable compiler API](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/#running-side-by-side-with-typescript-6-0); upgrading requires an extractor and test-runner migration. Node type definitions track the minimum supported Node major (22).
+
+`npm test` compiles the server once before running tests. Process integration tests launch that compiled CLI, and the test runner uses two workers to bound compiler memory usage.
+
 ```bash
 npm test
 npm run test:package # Install the packed CLI with production dependencies and exercise LSP initialization
 ```
+
+The dependency migration follows the official release notes:
+
+- [TypeScript 6.0](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-6-0.html): explicitly load Node types, retain the ES2023 target and source root, and replace legacy Node module resolution. The nested source config inherits the same settings.
+- [Language server 10/11 and text document 1.0.16](https://github.com/microsoft/vscode-languageserver-node/blob/main/README.md#history): use Node16 module resolution for package exports. Color handlers already return arrays; stdio uses built-in transports with the required cleanup. Diagnostics continue to emit plain text. Regression coverage checks CRLF edits and the existing LSP integration suite checks initialization, edits, and shutdown.
+- [HTML parser 8/9](https://github.com/taoqf/node-fast-html-parser/blob/master/CHANGELOG.md): consume the public package entry point for the new CommonJS/ESM packaging; verify HTML attribute entity rules, source ranges, and queries through deep nesting.
+- [glob 13/14](https://github.com/isaacs/node-glob/blob/main/changelog.md): use the library API (the CLI is now separate). Workspace tests cover brace patterns, ignored directories, and normalized Windows patterns under minimatch 11. Absolute ignore patterns follow the filesystem root; use `**/dist/**` to ignore matching directories throughout a workspace.
+- [css-tree 3.2](https://github.com/csstree/csstree/blob/master/CHANGELOG.md): keep the default `List` AST representation, align its type definitions, and retain parsing/range/color coverage for raw custom-property values. [vscode-uri](https://github.com/microsoft/vscode-uri#usage) keeps its public URI API; URI identity tests cover normalization.
+- [npm 12](https://github.com/npm/cli/blob/v12.0.2/CHANGELOG.md): use Node 24.15+ for the pinned package manager and publishing workflow. Earlier supported Node runtimes can use their bundled npm to build from the lockfile. The package smoke test accepts both npm's old array and new object JSON output from `npm pack`; the dependency graph needs no dependency lifecycle scripts.

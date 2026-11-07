@@ -12,28 +12,29 @@
   },
   "scripts": {
     "compile": "tsc -b",
+    "pretest": "npm run compile",
     "prepack": "npm run compile",
     "test:package": "node scripts/smoke-package.cjs",
     "perf": "CSS_LSP_PERF=1 TS_NODE_PROJECT=tsconfig.test.json node --test --require ts-node/register tests/perf.test.ts",
     "watch": "tsc -b -w",
-    "test": "TS_NODE_PROJECT=tsconfig.test.json node --test --require ts-node/register tests/*.test.ts"
+    "test": "TS_NODE_PROJECT=tsconfig.test.json node --test --test-concurrency=2 --require ts-node/register tests/*.test.ts"
   },
   "devDependencies": {
-    "@types/css-tree": "^2.3.11",
-    "@types/node": "^24.10.1",
+    "@types/css-tree": "^3.2.0",
+    "@types/node": "^22.20.5",
     "ts-node": "^10.9.2"
   },
   "dependencies": {
-    "typescript": "^5.9.3",
-    "css-tree": "^3.1.0",
-    "glob": "^12.0.0",
-    "vscode-languageserver": "^9.0.1",
-    "vscode-languageserver-textdocument": "^1.0.11",
-    "vscode-uri": "^3.0.8",
-    "node-html-parser": "^7.0.1"
+    "typescript": "^6.0.3",
+    "css-tree": "^3.2.1",
+    "glob": "^14.0.4",
+    "vscode-languageserver": "^11.0.0",
+    "vscode-languageserver-textdocument": "^1.0.16",
+    "vscode-uri": "^3.2.0",
+    "node-html-parser": "^9.0.7"
   },
   "engines": {
-    "node": "20 || >=22"
+    "node": ">=22"
   },
-  "packageManager": "pnpm@10.24.0+sha512.01ff8ae71b4419903b65c60fb2dc9d34cf8bb6e06d03bde112ef38f7a34d6904c424ba66bea5cdcf12890230bf39f9580473140ed9c946fef328b6e5238a345a"
+  "packageManager": "npm@12.0.2"
 }

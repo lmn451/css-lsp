@@ -69,3 +69,22 @@ test("complex selectors with combinators", () => {
   assert.strictEqual(tree.querySelectorAll(".container span").length, 1);
   assert.strictEqual(tree.querySelectorAll(".container > span").length, 1);
 });
+
+test("HTML attribute entities preserve selector matching and source ranges", () => {
+  const html = '<div id="a&amp;b" title="&copycat"><span>Text</span></div>';
+  const tree = new DOMTree(html);
+  const [node] = tree.querySelectorAll('[id="a&b"]');
+  assert.ok(node);
+  assert.equal(node.element.getAttribute("title"), "&copycat");
+  assert.deepEqual(node.element.range, [0, html.length]);
+  assert.equal(tree.matchesSelector(node, '[id="a&b"]'), true);
+});
+
+test("selector queries handle deeply nested HTML", () => {
+  const depth = 12000;
+  const tree = new DOMTree(
+    "<div>".repeat(depth) + '<span id="deep"></span>' + "</div>".repeat(depth),
+  );
+  assert.equal(tree.querySelectorAll("span").length, 1);
+  assert.equal(tree.querySelectorAll("div").length, depth);
+});

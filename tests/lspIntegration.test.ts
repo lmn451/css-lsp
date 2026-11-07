@@ -230,17 +230,14 @@ class LspClient {
 }
 
 function startServer(args: string[] = [], options: LspClientOptions = {}) {
-  const serverPath = path.join(__dirname, "..", "src", "server.ts");
+  const serverPath = path.join(__dirname, "..", "out", "server.js");
   const child = spawn(
     process.execPath,
-    ["--require", "ts-node/register", serverPath, "--stdio", ...args],
+    [serverPath, "--stdio", ...args],
     {
       cwd: path.join(__dirname, ".."),
       stdio: ["pipe", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        TS_NODE_PROJECT: path.join(__dirname, "..", "tsconfig.json"),
-      },
+      env: process.env,
     },
   ) as ChildProcessWithoutNullStreams;
 
