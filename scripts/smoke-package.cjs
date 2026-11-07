@@ -12,10 +12,13 @@ async function main() {
   let child;
   try {
     const packed = JSON.parse(
-      execFileSync("npm", ["pack", "--json", "--pack-destination", directory], {
-        cwd: project,
-        encoding: "utf8",
-      }),
+      // Older npm versions print lifecycle banners to stdout even with --json.
+      // Silence those banners so prepack still runs and stdout stays parseable.
+      execFileSync(
+        "npm",
+        ["pack", "--json", "--silent", "--pack-destination", directory],
+        { cwd: project, encoding: "utf8" },
+      ),
     );
     // npm 12 keys this result by package name; older npm versions return an array.
     const artifact = Array.isArray(packed)

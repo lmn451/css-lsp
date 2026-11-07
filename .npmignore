@@ -5,6 +5,7 @@
 .beads
 scripts/
 history/
+.context/
 
 # Ignore TypeScript source files (we ship compiled JS)
 src/

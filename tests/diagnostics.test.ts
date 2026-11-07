@@ -5,6 +5,9 @@ import { TextDocument } from "vscode-languageserver-textdocument";
 import { Diagnostic, DiagnosticSeverity } from "vscode-languageserver/node";
 import { UndefinedVarFallbackMode } from "../src/runtimeConfig";
 
+// The server emits plain text; LSP 3.18 also permits MarkupContent.
+type PlainTextDiagnostic = Diagnostic & { message: string };
+
 function createDoc(uri: string, content: string, languageId: string = "css") {
   return TextDocument.create(uri, languageId, 1, content);
 }
@@ -16,9 +19,9 @@ function getDiagnostics(
   document: TextDocument,
   manager: CssVariableManager,
   options: { undefinedVarFallback?: UndefinedVarFallbackMode } = {},
-): Diagnostic[] {
+): PlainTextDiagnostic[] {
   const text = document.getText();
-  const diagnostics: Diagnostic[] = [];
+  const diagnostics: PlainTextDiagnostic[] = [];
   const undefinedVarFallback = options.undefinedVarFallback ?? "warning";
   
   // Find all var(--variable) usages
@@ -43,7 +46,7 @@ function getDiagnostics(
       const startPos = document.positionAt(match.index);
       const endPos = document.positionAt(match.index + match[0].length);
 
-      const diagnostic: Diagnostic = {
+      const diagnostic: PlainTextDiagnostic = {
         severity,
         range: {
           start: startPos,
