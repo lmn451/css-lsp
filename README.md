@@ -19,6 +19,8 @@ A Language Server Protocol (LSP) implementation focused on CSS custom properties
 - Node.js 22 or newer. The server targets ES2023. CI checks Node 22.0.0 and the latest releases of majors 22, 24, and 26.
 - npm (the lockfile and CI use npm; publishing uses npm 12.0.2 on Node 24)
 
+Version 2 requires Node.js 22 or newer. Editor extensions that embed the server must provide that runtime before selecting 2.x; existing `^1.0.22` dependency ranges remain on 1.x. See [the changelog](CHANGELOG.md) for the release's compatibility changes.
+
 ### Install / Build
 
 ```bash
