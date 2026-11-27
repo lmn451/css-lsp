@@ -551,7 +551,10 @@ connection.onCompletion(
 
     const propertyName = completionContext.propertyName;
 
-    const variables = cssVariableManager.getAllVariables();
+    const variables = cssVariableManager
+      .getAllVariables()
+      // A custom property cannot reference itself, even via another definition.
+      .filter((variable) => variable.name !== propertyName);
     // Deduplicate by name
     const uniqueVars = new Map<string, CssVariable>();
     variables.forEach((v) => {

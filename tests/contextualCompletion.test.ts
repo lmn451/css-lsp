@@ -291,3 +291,13 @@ test("issue #16: completion works at bottom of long HTML style block", () => {
   assert.ok(completions.length > 0);
   assert.ok(completions.some((c) => c.label === "--size-3"));
 });
+
+for (const [propertyName, expected] of [["--self", "--self"], ["--Self", "--Self"], ["COLOR", "color"]]) {
+  test(`completion context preserves custom property case: ${propertyName}`, () => {
+    const text = `:root { ${propertyName}: var(--`;
+    const doc = createDoc("file:///case.css", text);
+    const context = getCssCompletionContext(doc, doc.positionAt(text.length));
+
+    assert.equal(context?.propertyName, expected);
+  });
+}
