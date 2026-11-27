@@ -58,6 +58,8 @@ Command-line flags:
 - `--path-display-length=N` (only used for `abbreviated`; `0` disables shortening)
 - `--undefined-var-fallback=warning|info|off` (controls diagnostics for undefined vars when a `var()` fallback exists)
 
+Set `cssVariables.diagnosticSeverities` in LSP initialization options or workspace settings to override individual messages. For example, `{"cssVariables":{"diagnosticSeverities":{"css-variable-lsp.undefined-variable":"hint"}}}` changes undefined-variable warnings to hints. Use `error`, `warning`, `info`, `hint`, or `off`. Removing an override restores the default.
+
 Environment variables:
 
 - `CSS_LSP_COLOR_ONLY_VARIABLES=1` (same as `--color-only-variables`)

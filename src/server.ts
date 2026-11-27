@@ -108,6 +108,7 @@ connection.onInitialize((params: InitializeParams) => {
     capabilities: params.capabilities,
   });
 
+  configureDiagnostics(params.initializationOptions);
   const capabilities = params.capabilities;
 
   hasWorkspaceFolderCapability = !!(
@@ -141,6 +142,27 @@ connection.onInitialize((params: InitializeParams) => {
     runtimeConfig.enableColorProvider,
     hasWorkspaceFolderCapability,
   );
+});
+
+const undefinedVariableCode = "css-variable-lsp.undefined-variable";
+let undefinedSeverity: DiagnosticSeverity | "off" | undefined;
+
+function configureDiagnostics(settings: any): void {
+  const section = settings?.cssVariables ?? settings;
+  const value = section?.diagnosticSeverities?.[undefinedVariableCode];
+  switch (value) {
+    case "error": undefinedSeverity = DiagnosticSeverity.Error; break;
+    case "warning": undefinedSeverity = DiagnosticSeverity.Warning; break;
+    case "info": undefinedSeverity = DiagnosticSeverity.Information; break;
+    case "hint": undefinedSeverity = DiagnosticSeverity.Hint; break;
+    case "off": undefinedSeverity = "off"; break;
+    default: undefinedSeverity = undefined;
+  }
+}
+
+connection.onDidChangeConfiguration(({ settings }) => {
+  configureDiagnostics(settings);
+  for (const document of documents.all()) scheduleValidation(document);
 });
 
 connection.onInitialized(async () => {
@@ -321,7 +343,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     const definitions = cssVariableManager.getVariables(variableName);
 
     if (definitions.length === 0) {
-      if (hasFallback && runtimeConfig.undefinedVarFallback === "off") {
+      if (undefinedSeverity === "off" || (hasFallback && runtimeConfig.undefinedVarFallback === "off")) {
         continue;
       }
 
@@ -334,7 +356,8 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
       const endPos = textDocument.positionAt(match.index + match[0].length);
 
       const diagnostic: Diagnostic = {
-        severity,
+        code: undefinedVariableCode,
+        severity: undefinedSeverity ?? severity,
         range: {
           start: startPos,
           end: endPos,
