@@ -934,3 +934,89 @@ test("documentColor responds when enabled and is empty when disabled", async () 
     await stopServer(disabledServer.child, disabledServer.client);
   }
 });
+
+test("completion excludes only the current custom property", async (t) => {
+  const workspace = await createWorkspace("--workspace");
+  await writeFile(
+    workspace.cssPath,
+    ":root { --workspace: red; --self: blue; --Self: green; }\n",
+    "utf8",
+  );
+  const { child, client } = startServer();
+  try {
+    await initializeClient(client, {
+      rootUri: URI.file(workspace.directory).toString(),
+    });
+    await waitForWorkspaceScan(client);
+
+    for (const fixture of [
+      {
+        name: "css", languageId: "css", property: "--self", other: "--Self",
+        wrap: (css: string) => `:root { ${css} }`,
+      },
+      {
+        name: "mixed-case", languageId: "css", property: "--Self", other: "--self",
+        wrap: (css: string) => `:root { ${css} }`,
+      },
+      {
+        name: "style-block", languageId: "html", property: "--self", other: "--Self",
+        wrap: (css: string) => `<style>:root { ${css} }</style>`,
+      },
+      {
+        name: "inline-style", languageId: "html", property: "--self", other: "--Self",
+        wrap: (css: string) => `<div style="${css}"></div>`,
+      },
+    ]) {
+      await t.test(fixture.name, async () => {
+        const uri = URI.file(
+          path.join(workspace.directory, `${fixture.name}.css`),
+        ).toString();
+        const marked = fixture.wrap(
+          `--other: #55cbb9; ${fixture.other}: green; ${fixture.property}: var(--|); color: var(--|);`,
+        );
+        const text = marked.replaceAll("|", "");
+        const document = TextDocument.create(uri, fixture.languageId, 1, text);
+        openDocument(client, uri, text, fixture.languageId);
+
+        const response = await client.request("textDocument/completion", {
+          textDocument: { uri },
+          position: document.positionAt(marked.indexOf("|")),
+        });
+        const labels = (response.result as Array<{ label: string }>).map(
+          (item) => item.label,
+        );
+        assert.ok(
+          !labels.includes(fixture.property),
+          "must exclude the current declaration, including definitions in other files",
+        );
+        assert.ok(labels.includes("--other"), "must retain another same-file variable");
+        assert.ok(labels.includes("--workspace"), "must retain a workspace variable");
+        assert.ok(labels.includes(fixture.other), "custom property names are case-sensitive");
+
+        const ordinary = await client.request("textDocument/completion", {
+          textDocument: { uri },
+          position: document.positionAt(marked.lastIndexOf("|") - 1),
+        });
+        const ordinaryLabels = (ordinary.result as Array<{ label: string }>).map(
+          (item) => item.label,
+        );
+        assert.ok(
+          ordinaryLabels.includes(fixture.property),
+          "must offer the variable outside its own declaration",
+        );
+
+        const literal = fixture.wrap(`${fixture.property}: #55cbb9;`);
+        changeDocument(client, uri, 2, literal);
+        const literalDocument = TextDocument.create(uri, fixture.languageId, 2, literal);
+        const literalResponse = await client.request("textDocument/completion", {
+          textDocument: { uri },
+          position: literalDocument.positionAt(literal.indexOf("#55cbb9") + 7),
+        });
+        assert.deepEqual(literalResponse.result, [], "a literal value is not a var() context");
+      });
+    }
+  } finally {
+    await stopServer(child, client);
+    await rm(workspace.directory, { recursive: true, force: true });
+  }
+});

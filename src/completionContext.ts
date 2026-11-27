@@ -323,7 +323,10 @@ function getPropertyNameFromContext(
     const beforeColon = beforeCursor.slice(0, lastColonPos).trim();
     const propertyMatch = beforeColon.match(/([\w-]+)$/);
     if (propertyMatch) {
-      return propertyMatch[1].toLowerCase();
+      const propertyName = propertyMatch[1];
+      return propertyName.startsWith("--")
+        ? propertyName
+        : propertyName.toLowerCase();
     }
   }
 
