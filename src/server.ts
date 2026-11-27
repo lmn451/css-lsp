@@ -149,7 +149,9 @@ let undefinedSeverity: DiagnosticSeverity | "off" | undefined;
 
 function configureDiagnostics(settings: any): void {
   const section = settings?.cssVariables ?? settings;
-  const value = section?.diagnosticSeverities?.[undefinedVariableCode];
+  const overrides = section?.diagnosticSeverities;
+  if (!overrides || typeof overrides !== "object" || Array.isArray(overrides)) return;
+  const value = overrides[undefinedVariableCode];
   switch (value) {
     case "error": undefinedSeverity = DiagnosticSeverity.Error; break;
     case "warning": undefinedSeverity = DiagnosticSeverity.Warning; break;
